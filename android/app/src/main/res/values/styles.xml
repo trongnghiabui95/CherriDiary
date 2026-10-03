@@ -1,0 +1,14 @@
+<resources>
+    <style name="Theme.CherriDiary" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#B22D54</item>
+        <item name="colorPrimaryVariant">#81213E</item>
+        <item name="colorSecondary">#B22D54</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+    <style name="Theme.CherriDiary.Transparent" parent="Theme.CherriDiary">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>

@@ -1,0 +1,12 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+app:
+  jwt-secret: test-only-secret-at-least-32-bytes-for-integration-tests
+  jwt-ttl-seconds: 3600
+  upload-dir: ./build/test-uploads
+  bootstrap:
+    password: ""

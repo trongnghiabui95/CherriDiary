@@ -1,0 +1,48 @@
+@base = http://localhost:8080/api/v1
+@token = PASTE_ACCESS_TOKEN_FROM_LOGIN
+@adminPassword = READ_ADMIN_PASSWORD_FROM_YOUR_LOCAL_ENV_FILE
+
+### Đăng nhập
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{"username":"admin","password":"{{adminPassword}}"}
+
+### Tạo mã hàng mẫu
+POST {{base}}/products
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"name":"Áo mẫu","shortCode":"A1","costPrice":40000,"sellingPrice":100000,"stockQuantity":10,"status":"ACTIVE"}
+
+### Phân tích comment
+POST {{base}}/orders/parse-comment
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"comment":"0987654321 A1 2"}
+
+### Phân trang và lọc đơn
+GET {{base}}/orders?page=0&size=20&phone=0987654321&status=CONFIRMED
+Authorization: Bearer {{token}}
+
+### Cập nhật thanh toán (đã thu ngoài cọc = 170000)
+PUT {{base}}/orders/1/payment
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"depositAmount":50000,"paidAmount":170000,"paymentMethod":"COD"}
+
+### Cập nhật vận đơn
+PUT {{base}}/orders/1/tracking
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"trackingCode":"GHN123"}
+
+### Hủy và hoàn kho
+PUT {{base}}/orders/1/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"status":"CANCELLED"}
