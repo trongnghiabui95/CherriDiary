@@ -1,0 +1,16 @@
+services:
+  tiktok-connector:
+    build: ./tiktok-connector
+    container_name: cherridiary_tiktok_connector
+    restart: unless-stopped
+    profiles: [tiktok]
+    env_file: .env.connector
+    environment:
+      CHERRI_API_URL: http://backend:8080/api/v1/
+    depends_on:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -24,7 +24,8 @@ import java.math.BigDecimal
 import java.util.UUID
 
 class QuickOrderBottomSheet(private val context: Context, parentScope: CoroutineScope,
-    private val screenshot: File? = null, commentRaw: String = "", overlay: Boolean = false) {
+    private val screenshot: File? = null, commentRaw: String = "", overlay: Boolean = false,
+    private val onDismiss: () -> Unit = {}) {
     private val scope = CoroutineScope(parentScope.coroutineContext + SupervisorJob(parentScope.coroutineContext[Job]))
     private val dialog = BottomSheetDialog(context)
     private val body = context.column()
@@ -62,7 +63,7 @@ class QuickOrderBottomSheet(private val context: Context, parentScope: Coroutine
         listOf(items, deposit, shipping).forEach { it.doAfterTextChanged { refreshSummary() } }
         dialog.setContentView(ScrollView(context).apply { addView(body) })
         if (overlay) dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
-        dialog.setOnDismissListener { scope.cancel(); screenshot?.delete() }
+        dialog.setOnDismissListener { scope.cancel(); screenshot?.delete(); onDismiss() }
         scope.coroutineContext[Job]!!.invokeOnCompletion { Handler(Looper.getMainLooper()).post { dialog.dismiss() } }
     }
 

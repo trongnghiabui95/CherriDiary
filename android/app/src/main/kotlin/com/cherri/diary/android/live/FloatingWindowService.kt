@@ -23,6 +23,9 @@ class FloatingWindowService : Service() {
     companion object {
         const val CAPTURE_READY = "com.cherri.diary.CAPTURE_READY"
         const val STOP = "com.cherri.diary.STOP_OVERLAY"
+        const val STATE_CHANGED = "com.cherri.diary.OVERLAY_STATE_CHANGED"
+        var isRunning = false
+            private set
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val handler = Handler(Looper.getMainLooper())
@@ -86,7 +89,11 @@ class FloatingWindowService : Service() {
                 else -> false
             }
         }
-        try { windows.addView(button, layout); bubble = button }
+        try {
+            windows.addView(button, layout); bubble = button
+            isRunning = true
+            sendBroadcast(Intent(STATE_CHANGED).setPackage(packageName))
+        }
         catch (_: RuntimeException) { toast("Không hiển thị được nút nổi; kiểm tra quyền"); stopSelf() }
     }
     private fun capture() {
@@ -114,6 +121,8 @@ class FloatingWindowService : Service() {
         activeSheet = QuickOrderBottomSheet(themed, scope, file, selectedText, overlay = true).also { it.show() }
     }
     override fun onDestroy() {
+        isRunning = false
+        sendBroadcast(Intent(STATE_CHANGED).setPackage(packageName))
         stopService(Intent(this, ScreenshotCaptureService::class.java))
         activeSheet?.dismiss(); handler.removeCallbacksAndMessages(null); scope.cancel()
         if (receiverRegistered) unregisterReceiver(receiver)

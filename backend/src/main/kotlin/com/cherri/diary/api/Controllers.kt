@@ -5,6 +5,8 @@ import com.cherri.diary.security.*
 import com.cherri.diary.service.*
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
+import io.swagger.v3.oas.annotations.Operation
+import io.swagger.v3.oas.annotations.Parameter
 import org.springframework.http.CacheControl
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
@@ -17,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile
 @RequestMapping("/api/v1/auth")
 class AuthController(private val auth: AuthService) {
     @PostMapping("/login")
+    @Operation(summary = "Đăng nhập và nhận JWT", security = [])
     fun login(@Valid @RequestBody request: LoginRequest, servlet: HttpServletRequest) = auth.login(request, servlet.remoteAddr)
 }
 
@@ -26,7 +29,7 @@ class OrderController(private val orders: OrderService, private val parser: Comm
     @PostMapping("/parse-comment")
     fun parse(@Valid @RequestBody request: ParseCommentRequest) = parser.parse(request.comment)
     @PostMapping("/fast-create", consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
-    fun create(@AuthenticationPrincipal staff: StaffPrincipal,
+    fun create(@Parameter(hidden = true) @AuthenticationPrincipal staff: StaffPrincipal,
         @Valid @RequestPart("order") request: FastCreateRequest,
         @RequestPart("proof", required = false) proof: MultipartFile?) = orders.fastCreate(staff.id, request, proof)
     @GetMapping

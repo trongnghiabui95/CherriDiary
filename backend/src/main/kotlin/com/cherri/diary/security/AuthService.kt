@@ -46,13 +46,17 @@ class AuthService(private val users: UserRepository, private val passwords: Pass
 @Component
 class AdminBootstrap(private val users: UserRepository, private val passwords: PasswordEncoder,
     @param:Value("\${app.bootstrap.username}") private val username: String,
-    @param:Value("\${app.bootstrap.password}") private val password: String) : ApplicationRunner {
+    @param:Value("\${app.bootstrap.password}") private val password: String,
+    @param:Value("\${app.bootstrap.minimum-password-length:12}") private val minimumPasswordLength: Int) : ApplicationRunner {
     @Transactional
     override fun run(args: ApplicationArguments) {
         if (password.isBlank()) return
-        require(password.length >= 12 && password.toByteArray(Charsets.UTF_8).size <= 72) { "ADMIN_PASSWORD must contain 12+ characters and at most 72 UTF-8 bytes" }
         val normalized = username.trim().lowercase(Locale.ROOT)
         require(normalized.matches(Regex("[a-z0-9_.-]{3,80}"))) { "Invalid ADMIN_USERNAME" }
-        if (users.findByUsername(normalized) == null) users.save(User(normalized, passwords.encode(password), "Quản trị Cherri Diary", Role.ROLE_ADMIN))
+        if (users.findByUsername(normalized) != null) return
+        require(minimumPasswordLength >= 1 && password.length >= minimumPasswordLength && password.toByteArray(Charsets.UTF_8).size <= 72) {
+            "ADMIN_PASSWORD must contain $minimumPasswordLength+ characters and at most 72 UTF-8 bytes"
+        }
+        users.save(User(normalized, passwords.encode(password), "Quản trị Cherri Diary", Role.ROLE_ADMIN))
     }
 }

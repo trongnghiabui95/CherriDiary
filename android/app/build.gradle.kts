@@ -12,10 +12,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        buildConfigField("String", "DEFAULT_API_URL", "\"https://api.cherridiary.invalid/api/v1/\"")
+        buildConfigField("String", "DEFAULT_API_URL", "\"https://a57a-113-172-183-146.ngrok-free.app/api/v1/\"")
     }
     buildTypes {
-        debug { buildConfigField("String", "DEFAULT_API_URL", "\"http://10.0.2.2:8080/api/v1/\"") }
+        debug { buildConfigField("String", "DEFAULT_API_URL", "\"https://a57a-113-172-183-146.ngrok-free.app/api/v1/\"") }
         release { isMinifyEnabled = false }
     }
     buildFeatures { buildConfig = true }

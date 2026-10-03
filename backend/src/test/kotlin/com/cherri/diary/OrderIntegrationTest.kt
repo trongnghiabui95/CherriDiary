@@ -3,6 +3,8 @@ package com.cherri.diary
 import com.cherri.diary.api.*
 import com.cherri.diary.domain.*
 import com.cherri.diary.service.*
+import com.cherri.diary.security.AdminBootstrap
+import org.springframework.boot.DefaultApplicationArguments
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -66,6 +68,30 @@ class OrderIntegrationTest {
         val response = mvc.perform(post("/api/v1/auth/login").contentType("application/json")
             .content(json.writeValueAsString(LoginRequest(username, password)))).andExpect(status().isOk).andReturn().response
         return json.readTree(response.contentAsString)["accessToken"].asText()
+    }
+
+    @Test
+    fun `swagger is public documents bearer auth and keeps business APIs protected`() {
+        mvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk)
+        mvc.perform(get("/v3/api-docs"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"))
+            .andExpect(jsonPath("$.paths['/api/v1/auth/login'].post.security").isEmpty)
+            .andExpect(jsonPath("$.security[0].bearerAuth").isArray)
+        mvc.perform(get("/api/v1/orders")).andExpect(status().isUnauthorized)
+    }
+
+    @Test
+    fun `bootstrap allows short local password preserves existing account and rejects short production password`() {
+        val arguments = DefaultApplicationArguments()
+        val existingHash = users.findByUsername("admin")!!.password
+        AdminBootstrap(users, passwords, "admin", "short", 12).run(arguments)
+        assertThat(users.findByUsername("admin")!!.password).isEqualTo(existingHash)
+        AdminBootstrap(users, passwords, "localadmin", "short", 1).run(arguments)
+        assertThat(passwords.matches("short", users.findByUsername("localadmin")!!.password)).isTrue()
+        assertThatThrownBy { AdminBootstrap(users, passwords, "productionadmin", "short", 12).run(arguments) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(users.findByUsername("productionadmin")).isNull()
     }
 
     @Test

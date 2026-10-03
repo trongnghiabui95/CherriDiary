@@ -13,9 +13,9 @@ function New-LocalSecret {
     try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
     return [Convert]::ToBase64String($bytes)
 }
-$databasePassword = New-LocalSecret
+$databasePassword = '123456'
 $tokenSecret = New-LocalSecret
 $adminPassword = New-LocalSecret
-$config = "DB_PASSWORD=$databasePassword`nJWT_SECRET=$tokenSecret`nADMIN_USERNAME=admin`nADMIN_PASSWORD=$adminPassword`n"
+$config = "DB_URL=jdbc:postgresql://localhost:5432/cherridiary_db`nDB_USER=admin`nDB_PASSWORD=$databasePassword`nJWT_SECRET=$tokenSecret`nADMIN_USERNAME=admin`nADMIN_PASSWORD=$adminPassword`n"
 [System.IO.File]::WriteAllText($configPath, $config, [System.Text.UTF8Encoding]::new($false))
 Write-Output 'Created .env. Read ADMIN_PASSWORD from that file to sign in. Secrets were not printed.'

@@ -1,16 +1,18 @@
 services:
-  db:
-    image: postgres:17-alpine
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: cherridiary_postgres
+    restart: always
     environment:
-      POSTGRES_DB: cherri_diary
-      POSTGRES_USER: cherri
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      POSTGRES_DB: cherridiary_db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: "123456"
     ports:
-      - "127.0.0.1:5432:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cherri -d cherri_diary"]
+      test: ["CMD-SHELL", "pg_isready -U admin -d cherridiary_db"]
       interval: 5s
       timeout: 5s
       retries: 10
