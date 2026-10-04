@@ -17,6 +17,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".ui.MainActivity" android:exported="false" />
+        <activity android:name=".ui.management.ManagementActivity" android:exported="false" />
         <activity android:name=".live.CaptureConsentActivity" android:exported="false"
             android:theme="@style/Theme.CherriDiary.Transparent" android:excludeFromRecents="true" />
         <service android:name=".live.FloatingWindowService" android:exported="false"

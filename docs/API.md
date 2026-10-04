@@ -86,3 +86,15 @@ Client nhận:
 Chỉ subscriber đúng phiên nhận sự kiện. eventId trùng trong 5 phút không được phát lại.
 Connector có thể dùng tài khoản staff riêng, login lấy token và gửi các sự kiện từ provider được cấu hình.
 Không gắn token vào URL hoặc tự tạo đơn khi chưa có nhân viên kiểm tra.
+
+### Settings management APIs
+
+All routes below use `/api/v1` and Bearer JWT. Staff may read `GET /users/me` and search `GET /products?q=&page=&size=`; public product responses omit cost price.
+
+Admin routes:
+- `GET /management/products?q=&page=&size=` includes cost price; existing `POST /products`, `PUT /products/{id}` create/update. `DELETE /products/{id}` archives (INACTIVE), retaining order history.
+- `POST /management/product-images`: multipart field `image`, maximum 5 MB, returns `imageUrl`. Uses the existing authenticated proof/image storage.
+- `GET /management/blacklist?q=&page=&size=`; `POST /management/blacklist` accepts `{id?, name?, phoneNumber?, tiktokId?, notes}`. Requires phone or TikTok ID and reason. Without id, matches existing contact; with id, edits the customer. `PUT /customers/{id}/blacklist` with `{isBlacklisted:false, notes?}` removes the flag.
+- `GET /users?q=&page=&size=`; existing `POST /users` creates an employee/admin. `PUT /users/{id}` accepts `{fullName,role,isActive,password?}`, where roles are `ROLE_STAFF` or `ROLE_ADMIN`; omitted/empty password leaves it unchanged. Admin cannot disable or demote the current account. Password reset does not revoke previously issued tokens; disabling an account rejects subsequent API requests.
+
+Lists use page 0 and size 20 by default, maximum size 100. Products retain their original short code after creation.

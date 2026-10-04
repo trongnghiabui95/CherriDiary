@@ -6,6 +6,19 @@ Không cần chọn từng comment trên điện thoại. Không gửi comment h
 
 ## Chạy bằng Git Bash + Docker
 
+### Chọn nguồn ngay trên Android
+
+Backend mới có `GET/POST /api/v1/live-connector`, lưu nguồn được chọn vào database.
+Trong tab Live nhập `@nonkgaminggg` hoặc link live rồi bấm **Kết nối & lấy comment**.
+App tự tạo phiên Cherri nếu chưa có ID, hoặc dùng ID đã chọn. Worker đọc nguồn mỗi 5 giây,
+đổi livestream khi bạn chọn nguồn mới và dừng nhận khi phiên Cherri kết thúc.
+Không cần đổi `TIKTOK_USERNAME`/`CHERRI_LIVE_SESSION_ID` trong env mỗi lần; hai biến này chỉ là fallback
+khi chưa chọn nguồn trên app. Username là tài khoản phát live, khác ID phiên Cherri và Room ID số.
+Comment chuyển cả `nickname` (tên hiển thị) và `tiktokId` (định danh); form chốt dùng nickname làm tên khách,
+giữ tiktokId để nhận diện khách. Nếu TikTok không cung cấp nickname thì dùng username làm tên tạm.
+
+### Thiết lập container lần đầu
+
 1. Tạo phiên trong tab **Live** Android; ghi lại **ID phiên Cherri Diary**. Backend Docker phải đang chạy.
 2. Tại thư mục gốc project chạy `bash scripts/Deploy-TikTok-Connector.sh --prepare`.
 3. Mở `D:\Project Cherri\Compose Deploy App\.env.connector`, điền:
@@ -28,7 +41,7 @@ Không cần chọn từng comment trên điện thoại. Không gửi comment h
 Connector reconnect mỗi 60 giây khi streamer offline hoặc bị ngắt; gửi API có timeout/retry exponential backoff,
 tự đăng nhập lại khi JWT hết hạn, dùng cùng eventId khi retry để gateway loại trùng trong cửa sổ 5 phút.
 Giữ tối đa 2.000 comment chờ trong RAM khi backend mất kết nối; không giữ hàng đợi qua restart và không lưu lịch sử comment.
-Android chỉ nhận comment mới khi đang kết nối, hiện hiển thị tối đa 20 comment gần nhất.
+Android chỉ nhận comment mới khi đang kết nối, hiện hiển thị tối đa 60 comment gần nhất.
 Sau khi kết thúc phiên Cherri, cập nhật ID mới trong `.env.connector` và chạy lại script cho phiên tiếp theo.
 
 ## Giới hạn kết nối thực tế

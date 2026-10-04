@@ -8,9 +8,9 @@ import java.time.Instant
 import java.util.UUID
 
 data class LoginRequest(@field:NotBlank val username: String, @field:NotBlank val password: String)
-data class UserView(val id: Long, val username: String, val fullName: String, val role: Role)
+data class UserView(val id: Long, val username: String, val fullName: String, val role: Role, val isActive: Boolean = true)
 data class LoginResponse(val accessToken: String, val tokenType: String = "Bearer", val expiresIn: Long, val user: UserView)
-fun User.toView() = UserView(id!!, username, fullName, role)
+fun User.toView() = UserView(id!!, username, fullName, role, isActive)
 
 data class UserRequest(
     @field:Pattern(regexp = "[a-zA-Z0-9_.-]{3,80}") val username: String,
@@ -33,7 +33,7 @@ data class ProductRequest(
 )
 data class ProductView(val id: Long, val categoryId: Long?, val name: String, val shortCode: String,
     val sellingPrice: BigDecimal, val stockQuantity: Int, val status: ProductStatus,
-    val description: String?, val imageUrl: String?)
+    val description: String?, val imageUrl: String?, val costPrice: BigDecimal? = null)
 fun Product.toView() = ProductView(id!!, category?.id, name, shortCode, sellingPrice, stockQuantity, status, description, imageUrl)
 
 data class CustomerRequest(

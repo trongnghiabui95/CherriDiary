@@ -4,7 +4,7 @@ import { BackendBridge, normalizeComment } from '../src/bridge.mjs';
 
 test('TikTok chat maps to backend payload and preserves provider ID for retries', () => {
   assert.deepEqual(normalizeComment({ common: { msgId: '987' }, user: { uniqueId: '@buyer' }, comment: ' A1 2 ' }),
-    { eventId: '987', tiktokId: 'buyer', comment: 'A1 2' });
+    { eventId: '987', tiktokId: 'buyer', comment: 'A1 2', nickname: null });
   assert.equal(normalizeComment({ comment: ' ' }), null);
 });
 test('expired JWT triggers login and retries the same event', async () => {
@@ -28,4 +28,18 @@ test('ended session errors are preserved rather than silently discarded', async 
   const bridge = new BackendBridge({ baseUrl: 'http://backend/api/v1/', sessionId: '1', fetchImpl: async () => ({ ok: false, status: 409 }) });
   bridge.token = 'jwt';
   await assert.rejects(bridge.forward({ eventId: '1', comment: 'hello' }), error => error.status === 409);
+});
+test('TikTok display name is forwarded independently from account ID', () => {
+  const event = normalizeComment({ user: { uniqueId: 'buyer123', nickname: 'Nguyễn Lan' }, comment: 'A1 2' });
+  assert.equal(event.nickname, 'Nguyễn Lan');
+  assert.equal(event.tiktokId, 'buyer123');
+});
+test('queued events keep their original Cherri session after switching source', async () => {
+  let target;
+  const bridge = new BackendBridge({ baseUrl: 'http://backend/api/v1/', sessionId: '2', fetchImpl: async url => {
+    target = url; return { ok: true, json: async () => ({}) };
+  } });
+  bridge.token = 'jwt';
+  await bridge.forward({ eventId: '1', comment: 'A1 2' }, '1');
+  assert.ok(target.endsWith('live-sessions/1/comments'));
 });

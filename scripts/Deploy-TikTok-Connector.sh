@@ -24,8 +24,8 @@ if [[ "${1:-}" == '--prepare' ]]; then
   exit 0
 fi
 docker compose -f "$base" -f compose.tiktok.yml --profile tiktok run --rm --no-deps tiktok-connector node -e '
-  if (!/^[\w.]{1,100}$/.test((process.env.TIKTOK_USERNAME || "").replace(/^@/, "")) || !/^[1-9]\d*$/.test(process.env.CHERRI_LIVE_SESSION_ID || "") || !process.env.CHERRI_PASSWORD) {
-    console.error("Fill username, Cherri live session ID and Cherri password in .env.connector first."); process.exit(1);
+  if (!process.env.CHERRI_PASSWORD) {
+    console.error("Fill Cherri password in .env.connector first; select TikTok source in Android."); process.exit(1);
   }'
 docker compose -f "$base" -f compose.tiktok.yml --profile tiktok up -d --no-deps --force-recreate tiktok-connector
 echo 'Connector started. Inspect: docker logs --tail 100 cherridiary_tiktok_connector'

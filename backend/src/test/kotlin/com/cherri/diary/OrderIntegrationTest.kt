@@ -37,6 +37,7 @@ import javax.imageio.ImageIO
 @ActiveProfiles("test")
 @Import(PostgresTestConfiguration::class)
 class OrderIntegrationTest {
+    @Autowired lateinit var connectorSources: com.cherri.diary.live.ConnectorSourceRepository
     @Autowired lateinit var orders: OrderRepository
     @Autowired lateinit var products: ProductRepository
     @Autowired lateinit var customers: CustomerRepository
@@ -55,6 +56,7 @@ class OrderIntegrationTest {
 
     @BeforeEach
     fun setup() {
+        connectorSources.deleteAll()
         orders.deleteAll(); products.deleteAll(); categories.deleteAll(); customers.deleteAll(); sessions.deleteAll(); users.deleteAll()
         val hash = passwords.encode(password)
         staff = users.saveAndFlush(User("staff", hash, "Staff", Role.ROLE_STAFF))
@@ -68,6 +70,66 @@ class OrderIntegrationTest {
         val response = mvc.perform(post("/api/v1/auth/login").contentType("application/json")
             .content(json.writeValueAsString(LoginRequest(username, password)))).andExpect(status().isOk).andReturn().response
         return json.readTree(response.contentAsString)["accessToken"].asText()
+    }
+
+    @Test
+    fun `management protects costs supports search archive and blacklist without losing contacts`() {
+        val staffJwt = token(); val adminJwt = token("admin")
+        mvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer $staffJwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.role").value("ROLE_STAFF"))
+        mvc.perform(get("/api/v1/management/products").header("Authorization", "Bearer $staffJwt")).andExpect(status().isForbidden)
+        mvc.perform(get("/api/v1/products").param("q", "a1").header("Authorization", "Bearer $staffJwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.totalElements").value(1)).andExpect(jsonPath("$.content[0].costPrice").doesNotExist())
+        mvc.perform(get("/api/v1/management/products").param("q", "a1").header("Authorization", "Bearer $adminJwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.content[0].costPrice").value(40))
+        mvc.perform(delete("/api/v1/products/${product.id}").header("Authorization", "Bearer $adminJwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.status").value("INACTIVE"))
+        assertThat(products.existsById(product.id!!)).isTrue()
+        val customer = customers.saveAndFlush(Customer(name = "Khách", phoneNumber = "0987654321", tiktokId = "buyer"))
+        val body = """{"tiktokId":"@buyer","notes":"Không nhận hàng"}"""
+        mvc.perform(post("/api/v1/management/blacklist").header("Authorization", "Bearer $staffJwt").contentType("application/json").content(body)).andExpect(status().isForbidden)
+        mvc.perform(post("/api/v1/management/blacklist").header("Authorization", "Bearer $adminJwt").contentType("application/json").content(body))
+            .andExpect(status().isOk).andExpect(jsonPath("$.id").value(customer.id)).andExpect(jsonPath("$.phoneNumber").value("0987654321"))
+        mvc.perform(get("/api/v1/management/blacklist").param("q", "buyer").header("Authorization", "Bearer $adminJwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.totalElements").value(1))
+        mvc.perform(put("/api/v1/customers/${customer.id}/blacklist").header("Authorization", "Bearer $adminJwt").contentType("application/json").content("""{"isBlacklisted":false}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.isBlacklisted").value(false))
+        assertThat(customers.existsById(customer.id!!)).isTrue()
+    }
+
+    @Test
+    fun `admin manages employees hashes reset passwords and cannot disable self`() {
+        val jwt = token("admin")
+        mvc.perform(post("/api/v1/users").header("Authorization", "Bearer $jwt").contentType("application/json")
+            .content("""{"username":"employee","fullName":"Nhân viên","password":"employee-password-123","role":"ROLE_STAFF"}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.password").doesNotExist())
+        val employee = users.findByUsername("employee")!!
+        mvc.perform(put("/api/v1/users/${employee.id}").header("Authorization", "Bearer $jwt").contentType("application/json")
+            .content("""{"fullName":"Đã sửa","role":"ROLE_ADMIN","isActive":true,"password":"new-password-12345"}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.role").value("ROLE_ADMIN"))
+        assertThat(passwords.matches("new-password-12345", users.findById(employee.id!!).orElseThrow().password)).isTrue()
+        mvc.perform(put("/api/v1/users/${admin.id}").header("Authorization", "Bearer $jwt").contentType("application/json")
+            .content("""{"fullName":"Admin","role":"ROLE_STAFF","isActive":false}"""))
+            .andExpect(status().isConflict)
+        mvc.perform(get("/api/v1/users").param("q", "employee").header("Authorization", "Bearer $jwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.totalElements").value(1))
+    }
+
+    @Test
+    fun `live connector source requires login accepts username and stops when session ends`() {
+        mvc.perform(get("/api/v1/live-connector")).andExpect(status().isUnauthorized)
+        val live = sessions.saveAndFlush(LiveSession(title = "Connector test"))
+        val jwt = token()
+        mvc.perform(post("/api/v1/live-connector").header("Authorization", "Bearer $jwt")
+            .contentType("application/json").content("""{"liveSessionId":${live.id},"username":"https://www.tiktok.com/@nonkgaminggg/live"}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.username").value("nonkgaminggg"))
+        assertThat(connectorSources.findById(1).orElseThrow().liveSessionId).isEqualTo(live.id)
+        live.endTime = java.time.Instant.now(); sessions.saveAndFlush(live)
+        mvc.perform(get("/api/v1/live-connector").header("Authorization", "Bearer $jwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.enabled").value(false))
+        mvc.perform(post("/api/v1/live-connector").header("Authorization", "Bearer $jwt")
+            .contentType("application/json").content("""{"liveSessionId":${live.id},"username":"@nonkgaminggg"}"""))
+            .andExpect(status().isConflict)
     }
 
     @Test

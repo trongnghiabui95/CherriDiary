@@ -8,7 +8,8 @@ export function normalizeComment(data) {
   return {
     eventId: String(id || randomUUID()).slice(0, 100),
     comment,
-    tiktokId: typeof user === 'string' ? user.replace(/^@/, '').slice(0, 100) : null
+    tiktokId: typeof user === 'string' ? user.replace(/^@/, '').slice(0, 100) : null,
+    nickname: typeof data.user?.nickname === 'string' ? data.user.nickname.trim().slice(0, 150) : null
   };
 }
 
@@ -37,14 +38,28 @@ export class BackendBridge {
     if (!result.accessToken) throw new Error('Backend returned no accessToken');
     this.token = result.accessToken;
   }
-  async forward(event) {
+  async forward(event, sessionId = this.sessionId) {
     if (!this.token) await this.login();
-    const path = `live-sessions/${this.sessionId}/comments`;
+    const path = `live-sessions/${sessionId}/comments`;
     try { return await this.request(path, event); }
     catch (error) {
       if (error.status !== 401) throw error;
       await this.login();
       return this.request(path, event);
     }
+  }
+  async source() {
+    if (!this.token) await this.login();
+    let response = await this.fetch(this.url + 'live-connector', {
+      headers: { Authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(10000)
+    });
+    if (response.status === 401) {
+      await this.login();
+      response = await this.fetch(this.url + 'live-connector', {
+        headers: { Authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(10000)
+      });
+    }
+    if (!response.ok) throw new BackendError(response.status);
+    return response.json();
   }
 }

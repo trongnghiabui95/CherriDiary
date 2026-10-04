@@ -46,7 +46,7 @@ class OrderController(private val orders: OrderService, private val parser: Comm
 @RestController
 @RequestMapping("/api/v1")
 class CatalogController(private val catalog: CatalogService, private val proofs: ProofStorageService) {
-    @GetMapping("/products") fun products(@RequestParam(defaultValue = "0") page: Int, @RequestParam(defaultValue = "20") size: Int) = catalog.products(page, size)
+    @GetMapping("/products") fun products(@RequestParam(defaultValue = "0") page: Int, @RequestParam(defaultValue = "20") size: Int, @RequestParam(defaultValue = "") q: String) = catalog.products(page, size, q)
     @PreAuthorize("hasRole('ADMIN')") @PostMapping("/products")
     fun createProduct(@Valid @RequestBody request: ProductRequest) = catalog.saveProduct(null, request)
     @PreAuthorize("hasRole('ADMIN')") @PutMapping("/products/{id}")

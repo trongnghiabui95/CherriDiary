@@ -181,3 +181,13 @@ và chuyển đến app qua WebSocket. Worker TikTok trong `tiktok-connector/` �
 ID phiên Cherri và tài khoản Cherri trong `.env.connector` để kết nối thật.
 Đường chốt trực tiếp trên điện thoại dùng Accessibility + MediaProjection và luôn có bước nhân viên kiểm tra.
 Facebook/Zalo/Phone được lưu thành kênh đơn hàng; chưa có webhook nhập đơn tự động từ các nền tảng đó.
+
+### Quản lý từ Cài đặt (Android)
+
+Mở tab **Cài đặt** → chọn **Sản phẩm**, **Danh sách đen** hoặc **Tài khoản**. Các màn hình quản lý sử dụng Jetpack Compose/NavHost, tìm kiếm trên server và phân trang.
+
+- **Sản phẩm:** Admin chọn **Thêm sản phẩm** hoặc **Sửa** trên từng thẻ; nhập mã ngắn, tên, giá bán, giá vốn và tồn kho. Có thể chọn ảnh từ máy (tối đa 5 MB) hoặc nhập URL ảnh. Mã ngắn giữ cố định sau khi tạo. **Gỡ / Ngừng dùng** chuyển sản phẩm sang ngừng bán; lịch sử đơn không bị xóa. Nhân viên chỉ xem danh sách và giá bán.
+- **Danh sách đen:** Admin nhập SĐT hoặc TikTok ID cùng lý do; có thể sửa hoặc gỡ chặn. Thêm bằng thông tin khách đã có sẽ cập nhật khách đó, giữ thông tin liên hệ còn lại. Gỡ chặn không xóa khách hoặc lịch sử đơn.
+- **Tài khoản:** xem tài khoản đang đăng nhập và đăng xuất. Admin có nút **Quản lý nhân viên** để thêm tài khoản, đổi tên, phân quyền, đặt mật khẩu mới hoặc khóa/mở khóa. Mật khẩu mới tối thiểu 12 ký tự, tối đa 72 byte UTF-8. Không thể tự khóa/hạ quyền Admin đang sử dụng. Khóa tài khoản có hiệu lực với các yêu cầu API tiếp theo; đặt lại mật khẩu chưa thu hồi các token đã cấp, chúng hết hạn theo cấu hình JWT.
+
+Các API quản trị kiểm tra quyền Admin trên backend; giá vốn chỉ trả trong `/api/v1/management/products`. Ảnh tải lên lưu trong thư mục uploads đang được mount của backend, không lưu trong APK.
