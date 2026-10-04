@@ -1,0 +1,3 @@
+app:
+  bootstrap:
+    minimum-password-length: 1

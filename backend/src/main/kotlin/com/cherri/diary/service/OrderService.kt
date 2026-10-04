@@ -25,33 +25,13 @@ class OrderService(private val users: UserRepository, private val products: Prod
         if (!user.isActive) conflict("Tài khoản đã bị khóa")
         orders.findByUserIdAndRequestId(userId, request.requestId)?.let { return it.toView() }
         if (request.status !in setOf(OrderStatus.DRAFT, OrderStatus.CONFIRMED)) invalid("Đơn mới chỉ có trạng thái DRAFT hoặc CONFIRMED")
-        if (request.items.isEmpty() || request.items.size > 50) invalid("Đơn cần từ 1 đến 50 dòng hàng")
-        val quantities = request.items.groupBy { Identity.code(it.shortCode) }.mapValues { (_, items) ->
-            if (items.any { it.quantity !in 1..10000 }) invalid("Số lượng không hợp lệ")
-            val total = items.sumOf { it.quantity.toLong() }
-            if (total > 10000) invalid("Một mã hàng tối đa 10000 sản phẩm")
-            total.toInt()
-        }
+        if (request.items.size > 50) invalid("Đơn tối đa 50 dòng hàng")
         val customer = resolveCustomer(request)
         if (customer.isBlacklisted && !request.acknowledgeBlacklist) conflict("Khách nằm trong danh sách đen. Cần xác nhận cảnh báo trước khi chốt.")
-        // Fixed order avoids deadlocks for baskets containing overlapping products.
-        val lockedProducts = quantities.keys.sorted().associateWith { code ->
-            (products.lockByShortCode(code) ?: missing("Không tìm thấy mã hàng $code")).also {
-                entityManager.refresh(it, LockModeType.PESSIMISTIC_WRITE)
-            }
-        }
         val order = Order(customer = customer, user = user, requestId = request.requestId,
-            channel = request.channel, status = request.status, commentRaw = request.commentRaw,
+            channel = request.channel, status = if (request.items.isEmpty()) OrderStatus.DRAFT else request.status, stockReserved = request.items.isNotEmpty(), commentRaw = request.commentRaw,
             depositAmount = money(request.depositAmount), shippingFee = money(request.shippingFee), paymentMethod = request.paymentMethod)
-        for ((code, product) in lockedProducts) {
-            val quantity = quantities.getValue(code)
-            if (product.status != ProductStatus.ACTIVE) conflict("Mã hàng $code ngừng bán")
-            if (product.stockQuantity < quantity) conflict("$code không đủ kho (còn ${product.stockQuantity})")
-            product.stockQuantity -= quantity
-            order.items += OrderItem(order, product, quantity, product.sellingPrice, product.costPrice)
-            order.subtotalAmount += product.sellingPrice * quantity.toBigDecimal()
-            order.totalCost += product.costPrice * quantity.toBigDecimal()
-        }
+        addProducts(order, request.items)
         recalculate(order)
         request.liveSessionId?.let { id ->
             val session = sessions.lockById(id) ?: missing("Không tìm thấy phiên live")
@@ -65,6 +45,62 @@ class OrderService(private val users: UserRepository, private val products: Prod
         return orders.saveAndFlush(order).toView()
     }
 
+    private fun addProducts(order: Order, items: List<QuickOrderItem>) {
+        val quantities = items.groupBy { Identity.code(it.shortCode) }.mapValues { (_, items) ->
+            if (items.any { it.quantity !in 1..10000 }) invalid("Số lượng không hợp lệ")
+            val total = items.sumOf { it.quantity.toLong() }
+            if (total > 10000) invalid("Một mã hàng tối đa 10000 sản phẩm")
+            total.toInt()
+        }
+        // Fixed order avoids deadlocks for baskets containing overlapping products.
+        val lockedProducts = quantities.keys.sorted().associateWith { code ->
+            var product = products.lockByShortCode(code)
+            if (product == null) {
+                val prices = items.filter { Identity.code(it.shortCode) == code }.mapNotNull { it.newProductPrice }.map(::money).distinct()
+                if (prices.size != 1) invalid("Nhập một giá bán cho mã hàng mới $code")
+                // The unique code and ON CONFLICT serialize concurrent creation without duplicate products.
+                entityManager.createNativeQuery("""INSERT INTO products (name, short_code, cost_price, selling_price, stock_quantity, status, description)
+                    VALUES (:code, :code, 0, :price, :quantity, 'ACTIVE', 'Tạo nhanh khi chốt đơn livestream; cần bổ sung giá vốn và tồn kho')
+                    ON CONFLICT (short_code) DO NOTHING""")
+                    .setParameter("code", code).setParameter("price", prices.single()).setParameter("quantity", quantities.getValue(code)).executeUpdate()
+                product = products.lockByShortCode(code) ?: missing("Không tìm thấy mã hàng $code")
+            }
+            product.also {
+                entityManager.refresh(it, LockModeType.PESSIMISTIC_WRITE)
+            }
+        }
+        for ((code, product) in lockedProducts) {
+            val quantity = quantities.getValue(code)
+            if (product.status != ProductStatus.ACTIVE) conflict("Mã hàng $code ngừng bán")
+            if (product.stockQuantity < quantity) conflict("$code không đủ kho (còn ${product.stockQuantity})")
+            product.stockQuantity -= quantity
+            order.items += OrderItem(order, product, quantity, product.sellingPrice, product.costPrice)
+            order.subtotalAmount += product.sellingPrice * quantity.toBigDecimal()
+            order.totalCost += product.costPrice * quantity.toBigDecimal()
+        }
+    }
+
+    @Transactional
+    fun completeDraft(id: Long, items: List<QuickOrderItem>): OrderView {
+        val order = orders.lockById(id) ?: missing("Không tìm thấy đơn hàng")
+        if (order.status != OrderStatus.DRAFT) conflict("Chỉ bổ sung mã hàng cho đơn nháp")
+        if (items.isEmpty() || items.size > 50) invalid("Nhập từ 1 đến 50 dòng hàng")
+        if (order.items.isNotEmpty()) {
+            val desired = items.groupBy { Identity.code(it.shortCode) }.mapValues { it.value.sumOf { line -> line.quantity.toLong() } }
+            val current = order.items.associate { it.product.shortCode to it.quantity.toLong() }
+            if (desired == current) return order.toView()
+            conflict("Đơn đã có sản phẩm; không thể ghi đè danh sách")
+        }
+        if (order.customer.isBlacklisted) conflict("Khách đang trong danh sách đen; cần xử lý cảnh báo trước khi bổ sung hàng")
+        addProducts(order, items)
+        order.stockReserved = true
+        recalculate(order)
+        order.liveSession?.id?.let { sessionId ->
+            val session = sessions.lockById(sessionId) ?: missing("Không tìm thấy phiên live")
+            session.totalRevenue += order.subtotalAmount
+        }
+        return orders.saveAndFlush(order).toView()
+    }
     private fun resolveCustomer(request: FastCreateRequest): Customer {
         val phone = Identity.phone(request.phoneNumber)
         val nick = Identity.tiktok(request.tiktokId)
@@ -77,8 +113,8 @@ class OrderService(private val users: UserRepository, private val products: Prod
         val customer = candidates.singleOrNull()?.let {
             customers.lockById(it.id!!)!!.also { locked -> entityManager.refresh(locked, LockModeType.PESSIMISTIC_WRITE) }
         } ?: run {
-            if (phone == null && nick == null && facebook == null) invalid("Cần SĐT, TikTok ID hoặc Facebook ID")
-            customers.saveAndFlush(Customer(name = request.customerName?.trim()?.takeIf { it.isNotEmpty() } ?: phone ?: nick ?: facebook!!,
+            if (phone == null && nick == null && facebook == null && (request.items.isNotEmpty() || (request.customerName.isNullOrBlank() && request.commentRaw.isNullOrBlank()))) invalid("Cần thông tin khách hoặc comment để lưu nháp")
+            customers.saveAndFlush(Customer(name = request.customerName?.trim()?.takeIf { it.isNotEmpty() } ?: phone ?: nick ?: facebook ?: "Khách từ comment",
                 phoneNumber = phone, tiktokId = nick, facebookId = facebook, address = request.address))
         }
         if ((phone != null && customer.phoneNumber != null && phone != customer.phoneNumber) ||
@@ -103,8 +139,9 @@ class OrderService(private val users: UserRepository, private val products: Prod
             OrderStatus.COMPLETED, OrderStatus.CANCELLED -> emptySet()
         }
         if (target !in allowed) conflict("Không thể chuyển ${order.status} sang $target")
+        if (target == OrderStatus.CONFIRMED && order.items.isEmpty()) conflict("Bổ sung mã hàng trước khi xác nhận đơn nháp")
         if (target == OrderStatus.COMPLETED && order.remainingAmount.signum() != 0) conflict("Cần ghi nhận đủ thanh toán trước khi hoàn tất đơn")
-        if (target == OrderStatus.CANCELLED && order.stockReserved) {
+        if (target == OrderStatus.CANCELLED) {
             val customer = customers.lockById(order.customer.id!!)!!
             entityManager.refresh(customer, LockModeType.PESSIMISTIC_WRITE)
             order.items.sortedBy { it.product.shortCode }.forEach { item ->
@@ -175,6 +212,7 @@ class OrderService(private val users: UserRepository, private val products: Prod
         order.remainingAmount = order.totalAmount - order.paidAmount
         if (order.totalAmount.signum() < 0 || order.remainingAmount.signum() < 0) invalid("Tổng tiền đã thu không được vượt tiền hàng cộng phí ship")
         order.paymentStatus = when {
+            order.items.isEmpty() -> PaymentStatus.UNPAID
             order.remainingAmount.signum() == 0 -> PaymentStatus.PAID
             (order.depositAmount + order.paidAmount).signum() > 0 -> PaymentStatus.PARTIALLY_PAID
             else -> PaymentStatus.UNPAID

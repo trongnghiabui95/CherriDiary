@@ -8,9 +8,9 @@ import java.time.Instant
 import java.util.UUID
 
 data class LoginRequest(@field:NotBlank val username: String, @field:NotBlank val password: String)
-data class UserView(val id: Long, val username: String, val fullName: String, val role: Role)
+data class UserView(val id: Long, val username: String, val fullName: String, val role: Role, val isActive: Boolean = true)
 data class LoginResponse(val accessToken: String, val tokenType: String = "Bearer", val expiresIn: Long, val user: UserView)
-fun User.toView() = UserView(id!!, username, fullName, role)
+fun User.toView() = UserView(id!!, username, fullName, role, isActive)
 
 data class UserRequest(
     @field:Pattern(regexp = "[a-zA-Z0-9_.-]{3,80}") val username: String,
@@ -33,7 +33,7 @@ data class ProductRequest(
 )
 data class ProductView(val id: Long, val categoryId: Long?, val name: String, val shortCode: String,
     val sellingPrice: BigDecimal, val stockQuantity: Int, val status: ProductStatus,
-    val description: String?, val imageUrl: String?)
+    val description: String?, val imageUrl: String?, val costPrice: BigDecimal? = null)
 fun Product.toView() = ProductView(id!!, category?.id, name, shortCode, sellingPrice, stockQuantity, status, description, imageUrl)
 
 data class CustomerRequest(
@@ -56,10 +56,11 @@ data class ParsedComment(val commentRaw: String, val phoneNumber: String?, val t
 data class QuickOrderItem(
     @field:Pattern(regexp = "[A-Za-z][A-Za-z0-9_-]{0,29}") val shortCode: String,
     @field:Min(1) @field:Max(10000) val quantity: Int = 1,
+    @field:DecimalMin("0") @field:Digits(integer = 17, fraction = 2) val newProductPrice: BigDecimal? = null,
 )
 data class FastCreateRequest(
     val requestId: UUID,
-    @field:Valid @field:Size(min = 1, max = 50) val items: List<QuickOrderItem>,
+    @field:Valid @field:Size(max = 50) val items: List<QuickOrderItem>,
     @field:Positive val customerId: Long? = null,
     @field:Size(max = 150) val customerName: String? = null,
     @field:Size(max = 20) val phoneNumber: String? = null,
@@ -76,6 +77,7 @@ data class FastCreateRequest(
     val status: OrderStatus = OrderStatus.CONFIRMED,
 )
 data class StatusRequest(val status: OrderStatus)
+data class DraftItemsRequest(@field:Valid @field:Size(min = 1, max = 50) val items: List<QuickOrderItem>)
 data class PaymentRequest(
     @field:DecimalMin("0") @field:Digits(integer = 17, fraction = 2) val depositAmount: BigDecimal,
     @field:DecimalMin("0") @field:Digits(integer = 17, fraction = 2) val paidAmount: BigDecimal,

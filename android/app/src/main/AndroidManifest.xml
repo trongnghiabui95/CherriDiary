@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application android:name=".CherriApplication" android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules" android:fullBackupContent="@xml/backup_rules"
-        android:icon="@drawable/ic_cherri"
+        android:icon="@drawable/ic_cherri_custom"
         android:label="Cherri Diary" android:theme="@style/Theme.CherriDiary"
         android:supportsRtl="true" android:usesCleartextTraffic="false">
         <activity android:name=".ui.LoginActivity" android:exported="true">
@@ -17,6 +17,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".ui.MainActivity" android:exported="false" />
+        <activity android:name=".ui.management.ManagementActivity" android:exported="false" />
         <activity android:name=".live.CaptureConsentActivity" android:exported="false"
             android:theme="@style/Theme.CherriDiary.Transparent" android:excludeFromRecents="true" />
         <service android:name=".live.FloatingWindowService" android:exported="false"

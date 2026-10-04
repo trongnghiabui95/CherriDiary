@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/cherri_diary}
-    username: ${DB_USER:cherri}
-    password: ${DB_PASSWORD}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/cherridiary_db}
+    username: ${DB_USER:admin}
+    password: ${DB_PASSWORD:123456}
   jpa:
     open-in-view: false
     hibernate:
@@ -11,11 +11,13 @@ spring:
       hibernate.jdbc.time_zone: UTC
   flyway:
     enabled: true
+    clean-disabled: true
   servlet:
     multipart:
       max-file-size: 5MB
       max-request-size: 6MB
 server:
+  forward-headers-strategy: framework
   error:
     include-message: never
 app:
@@ -24,4 +26,4 @@ app:
   upload-dir: ${UPLOAD_DIR:./uploads}
   bootstrap:
     username: ${ADMIN_USERNAME:admin}
-    password: ${ADMIN_PASSWORD:}
+    password: ${ADMIN_PASSWORD:admin}

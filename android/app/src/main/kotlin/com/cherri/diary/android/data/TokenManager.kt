@@ -16,10 +16,23 @@ class TokenManager(context: Context) {
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
 
-    fun token(): String? = preferences.getString("token", null)
-    fun save(token: String, name: String) { preferences.edit { putString("token", token); putString("name", name) } }
-    fun clear() { preferences.edit { remove("token"); remove("name"); remove("live_session_id") } }
-    fun name(): String = preferences.getString("name", "Nhân viên")!!
+    private var sessionToken: String? = null
+    private var sessionName: String? = null
+    fun rememberLogin(): Boolean = preferences.getBoolean("remember_login", true)
+    fun token(): String? = sessionToken ?: preferences.getString("token", null)
+    fun save(token: String, name: String, remember: Boolean = true) {
+        sessionToken = token; sessionName = name
+        preferences.edit {
+            putBoolean("remember_login", remember)
+            if (remember) { putString("token", token); putString("name", name) }
+            else { remove("token"); remove("name") }
+        }
+    }
+    fun clear() {
+        sessionToken = null; sessionName = null
+        preferences.edit { remove("token"); remove("name"); remove("live_session_id") }
+    }
+    fun name(): String = sessionName ?: preferences.getString("name", "Nhân viên")!!
     fun baseUrl(): String = preferences.getString("base_url", BuildConfig.DEFAULT_API_URL)!!
     fun setBaseUrl(value: String) {
         val url = (value.trim().trimEnd('/') + "/").toHttpUrlOrNull() ?: error("URL backend không hợp lệ")

@@ -24,8 +24,9 @@ import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
 data class IngestCommentRequest(@field:NotBlank @field:Size(max = 100) val eventId: String,
-    @field:NotBlank @field:Size(max = 4000) val comment: String, @field:Size(max = 100) val tiktokId: String? = null)
-data class LiveComment(val eventId: String, val liveSessionId: Long, val comment: String, val tiktokId: String?)
+    @field:NotBlank @field:Size(max = 4000) val comment: String, @field:Size(max = 100) val tiktokId: String? = null,
+    @field:Size(max = 150) val nickname: String? = null)
+data class LiveComment(val eventId: String, val liveSessionId: Long, val comment: String, val tiktokId: String?, val nickname: String? = null)
 
 // Provider-independent boundary: an authorized connector forwards provider comments here.
 // This does not pretend to be an official TikTok comment API.
@@ -65,7 +66,7 @@ class LiveCommentGateway(private val json: ObjectMapper, private val sessions: L
     fun publish(liveSessionId: Long, request: IngestCommentRequest): LiveComment {
         val live = sessions.findById(liveSessionId).orElse(null) ?: missing("Không tìm thấy phiên live")
         if (live.endTime != null) conflict("Phiên live đã kết thúc")
-        val event = LiveComment(request.eventId, liveSessionId, request.comment, com.cherri.diary.service.Identity.tiktok(request.tiktokId))
+        val event = LiveComment(request.eventId, liveSessionId, request.comment, com.cherri.diary.service.Identity.tiktok(request.tiktokId), request.nickname?.trim()?.takeIf { it.isNotEmpty() })
         synchronized(recent) {
             val now = Instant.now()
             recent.entries.removeIf { it.value.plusSeconds(300).isBefore(now) }

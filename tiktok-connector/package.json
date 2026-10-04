@@ -1,0 +1,10 @@
+{
+  "name": "cherri-tiktok-connector",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node src/main.mjs", "test": "node --test" },
+  "dependencies": { "tiktok-live-connector": "2.1.0" },
+  "overrides": { "protobufjs": "7.6.6" }
+}

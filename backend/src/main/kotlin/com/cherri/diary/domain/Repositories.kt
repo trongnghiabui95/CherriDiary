@@ -7,7 +7,9 @@ import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import java.util.UUID
 
-interface UserRepository : JpaRepository<User, Long> {
+interface UserRepository : JpaRepository<User, Long>, JpaSpecificationExecutor<User> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    fun findByRoleAndIsActiveOrderByIdAsc(role: Role, isActive: Boolean): List<User>
     fun findByUsername(username: String): User?
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :id")
@@ -16,7 +18,7 @@ interface UserRepository : JpaRepository<User, Long> {
 
 interface CategoryRepository : JpaRepository<Category, Long>
 
-interface ProductRepository : JpaRepository<Product, Long> {
+interface ProductRepository : JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
     fun findByShortCode(shortCode: String): Product?
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Product p where p.shortCode = :shortCode")

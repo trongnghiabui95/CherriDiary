@@ -15,9 +15,13 @@ class CatalogService(private val products: ProductRepository, private val catego
     private val customers: CustomerRepository, private val users: UserRepository,
     private val sessions: LiveSessionRepository, private val passwords: PasswordEncoder) {
     @Transactional(readOnly = true)
-    fun products(page: Int, size: Int): PageView<ProductView> {
+    fun products(page: Int, size: Int, q: String = ""): PageView<ProductView> {
         validatePage(page, size)
-        val result = products.findAll(PageRequest.of(page, size, Sort.by("shortCode")))
+        val term = q.trim().lowercase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        val spec = org.springframework.data.jpa.domain.Specification<Product> { root, _, cb ->
+            if (term.isEmpty()) cb.conjunction() else cb.or(cb.like(cb.lower(root.get("name")), "%$term%", '\\'), cb.like(cb.lower(root.get("shortCode")), "%$term%", '\\'))
+        }
+        val result = products.findAll(spec, PageRequest.of(page, size, Sort.by("shortCode")))
         return PageView(result.content.map(Product::toView), page, size, result.totalElements, result.totalPages)
     }
     @Transactional

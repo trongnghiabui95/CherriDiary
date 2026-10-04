@@ -1,0 +1,18 @@
+<resources>
+    <string name="login_remember">Ghi nhớ đăng nhập</string>
+    <string name="login_forgot">Quên mật khẩu?</string>
+    <string name="login_recovery">Liên hệ quản trị viên cửa hàng để được hỗ trợ khôi phục tài khoản. Ứng dụng hiện chưa hỗ trợ đặt lại mật khẩu qua email.</string>
+    <string name="login_brand">Cherri Diary</string>
+    <string name="login_tagline">Mỗi phiên live, một khởi đầu mới.</string>
+    <string name="login_title">Chào bạn trở lại!</string>
+    <string name="login_description">Đăng nhập để quản lý phiên live và chốt đơn cùng Cherri.</string>
+    <string name="login_username">Tài khoản</string>
+    <string name="login_password">Mật khẩu</string>
+    <string name="login_submit">Đăng nhập</string>
+    <string name="login_busy">Đang đăng nhập…</string>
+    <string name="login_server_toggle">Cấu hình server</string>
+    <string name="login_server">URL server</string>
+    <string name="login_server_help">URL kết thúc bằng /api/v1/</string>
+    <string name="login_footer">Sẵn sàng cho phiên live tiếp theo của bạn.</string>
+    <string name="login_required">Vui lòng nhập tài khoản và mật khẩu.</string>
+</resources>

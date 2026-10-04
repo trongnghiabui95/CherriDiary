@@ -3,6 +3,8 @@ package com.cherri.diary
 import com.cherri.diary.api.*
 import com.cherri.diary.domain.*
 import com.cherri.diary.service.*
+import com.cherri.diary.security.AdminBootstrap
+import org.springframework.boot.DefaultApplicationArguments
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -35,6 +37,7 @@ import javax.imageio.ImageIO
 @ActiveProfiles("test")
 @Import(PostgresTestConfiguration::class)
 class OrderIntegrationTest {
+    @Autowired lateinit var connectorSources: com.cherri.diary.live.ConnectorSourceRepository
     @Autowired lateinit var orders: OrderRepository
     @Autowired lateinit var products: ProductRepository
     @Autowired lateinit var customers: CustomerRepository
@@ -53,6 +56,7 @@ class OrderIntegrationTest {
 
     @BeforeEach
     fun setup() {
+        connectorSources.deleteAll()
         orders.deleteAll(); products.deleteAll(); categories.deleteAll(); customers.deleteAll(); sessions.deleteAll(); users.deleteAll()
         val hash = passwords.encode(password)
         staff = users.saveAndFlush(User("staff", hash, "Staff", Role.ROLE_STAFF))
@@ -66,6 +70,153 @@ class OrderIntegrationTest {
         val response = mvc.perform(post("/api/v1/auth/login").contentType("application/json")
             .content(json.writeValueAsString(LoginRequest(username, password)))).andExpect(status().isOk).andReturn().response
         return json.readTree(response.contentAsString)["accessToken"].asText()
+    }
+
+    @Test
+    fun `comment only draft is accepted by HTTP keeps evidence and cannot confirm before products`() {
+        val body = FastCreateRequest(UUID.randomUUID(), emptyList(), customerName = "Khách mới", commentRaw = "Giữ giúp mình mẫu áo này")
+        val part = MockMultipartFile("order", "", "application/json", json.writeValueAsBytes(body))
+        val response = mvc.perform(multipart("/api/v1/orders/fast-create").file(part).header("Authorization", "Bearer ${token()}"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.status").value("DRAFT"))
+            .andExpect(jsonPath("$.items").isEmpty).andExpect(jsonPath("$.commentRaw").value(body.commentRaw))
+            .andReturn().response
+        val id = json.readTree(response.contentAsString)["id"].asLong()
+        assertThat(products.findByShortCode("A1")!!.stockQuantity).isEqualTo(10)
+        assertThatThrownBy { orderService.updateStatus(id, OrderStatus.CONFIRMED) }.isInstanceOf(ApiException::class.java)
+        orderService.updateStatus(id, OrderStatus.CANCELLED)
+        assertThat(customers.findAll().single().totalOrders).isZero()
+        assertThat(products.findByShortCode("A1")!!.stockQuantity).isEqualTo(10)
+    }
+
+    @Test
+    fun `draft products can be filled later with retries reserving once and correct live revenue`() {
+        val live = sessions.saveAndFlush(LiveSession(title = "Draft live"))
+        val request = FastCreateRequest(UUID.randomUUID(), emptyList(), tiktokId = "draftbuyer", liveSessionId = live.id)
+        val draft = orderService.fastCreate(staff.id!!, request, null)
+        assertThat(orderService.fastCreate(staff.id!!, request, null).id).isEqualTo(draft.id)
+        val lines = listOf(QuickOrderItem("A1", 2))
+        val filled = orderService.completeDraft(draft.id, lines)
+        assertThat(filled.status).isEqualTo(OrderStatus.DRAFT)
+        assertThat(filled.subtotalAmount).isEqualByComparingTo("200.00")
+        orderService.completeDraft(draft.id, lines)
+        assertThat(products.findByShortCode("A1")!!.stockQuantity).isEqualTo(8)
+        assertThat(sessions.findById(live.id!!).orElseThrow().totalRevenue).isEqualByComparingTo("200.00")
+        orderService.updateStatus(draft.id, OrderStatus.CONFIRMED)
+        orderService.updateStatus(draft.id, OrderStatus.CANCELLED)
+        assertThat(products.findByShortCode("A1")!!.stockQuantity).isEqualTo(10)
+        assertThat(sessions.findById(live.id!!).orElseThrow().totalRevenue).isEqualByComparingTo("0.00")
+        assertThat(sessions.findById(live.id!!).orElseThrow().totalOrders).isZero()
+    }
+
+    @Test
+    fun `quick checkout creates new product atomically and retry does not create duplicate stock`() {
+        val request = FastCreateRequest(UUID.randomUUID(), listOf(QuickOrderItem("live99", 2, BigDecimal("125.00"))), tiktokId = "buyer99", customerName = "Khách Live")
+        val first = orderService.fastCreate(staff.id!!, request, null)
+        val created = products.findByShortCode("LIVE99")!!
+        assertThat(created.name).isEqualTo("LIVE99")
+        assertThat(created.sellingPrice).isEqualByComparingTo("125.00")
+        assertThat(created.stockQuantity).isZero()
+        assertThat(first.subtotalAmount).isEqualByComparingTo("250.00")
+        assertThat(orderService.fastCreate(staff.id!!, request, null).id).isEqualTo(first.id)
+        assertThat(products.count()).isEqualTo(2)
+        orderService.updateStatus(first.id, OrderStatus.CANCELLED)
+        assertThat(products.findByShortCode("LIVE99")!!.stockQuantity).isEqualTo(2)
+    }
+
+    @Test
+    fun `new products roll back with invalid checkout and existing prices cannot be overridden`() {
+        val bad = FastCreateRequest(UUID.randomUUID(), listOf(QuickOrderItem("A0NEW77", 1, BigDecimal("100")), QuickOrderItem("A1", 11)), tiktokId = "buyer77")
+        assertThatThrownBy { orderService.fastCreate(staff.id!!, bad, null) }.isInstanceOf(ApiException::class.java)
+        assertThat(products.findByShortCode("A0NEW77")).isNull()
+        val existing = FastCreateRequest(UUID.randomUUID(), listOf(QuickOrderItem("A1", 1, BigDecimal("1"))), tiktokId = "buyer77")
+        assertThat(orderService.fastCreate(staff.id!!, existing, null).subtotalAmount).isEqualByComparingTo("100.00")
+        val missingPrice = FastCreateRequest(UUID.randomUUID(), listOf(QuickOrderItem("NEW88", 1)), tiktokId = "buyer88")
+        assertThatThrownBy { orderService.fastCreate(staff.id!!, missingPrice, null) }.isInstanceOf(ApiException::class.java)
+        assertThat(products.findByShortCode("NEW88")).isNull()
+    }
+
+    @Test
+    fun `management protects costs supports search archive and blacklist without losing contacts`() {
+        val staffJwt = token(); val adminJwt = token("admin")
+        mvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer $staffJwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.role").value("ROLE_STAFF"))
+        mvc.perform(get("/api/v1/management/products").header("Authorization", "Bearer $staffJwt")).andExpect(status().isForbidden)
+        mvc.perform(get("/api/v1/products").param("q", "a1").header("Authorization", "Bearer $staffJwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.totalElements").value(1)).andExpect(jsonPath("$.content[0].costPrice").doesNotExist())
+        mvc.perform(get("/api/v1/management/products").param("q", "a1").header("Authorization", "Bearer $adminJwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.content[0].costPrice").value(40))
+        mvc.perform(delete("/api/v1/products/${product.id}").header("Authorization", "Bearer $adminJwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.status").value("INACTIVE"))
+        assertThat(products.existsById(product.id!!)).isTrue()
+        val customer = customers.saveAndFlush(Customer(name = "Khách", phoneNumber = "0987654321", tiktokId = "buyer"))
+        val body = """{"tiktokId":"@buyer","notes":"Không nhận hàng"}"""
+        mvc.perform(post("/api/v1/management/blacklist").header("Authorization", "Bearer $staffJwt").contentType("application/json").content(body)).andExpect(status().isForbidden)
+        mvc.perform(post("/api/v1/management/blacklist").header("Authorization", "Bearer $adminJwt").contentType("application/json").content(body))
+            .andExpect(status().isOk).andExpect(jsonPath("$.id").value(customer.id)).andExpect(jsonPath("$.phoneNumber").value("0987654321"))
+        mvc.perform(get("/api/v1/management/blacklist").param("q", "buyer").header("Authorization", "Bearer $adminJwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.totalElements").value(1))
+        mvc.perform(put("/api/v1/customers/${customer.id}/blacklist").header("Authorization", "Bearer $adminJwt").contentType("application/json").content("""{"isBlacklisted":false}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.isBlacklisted").value(false))
+        assertThat(customers.existsById(customer.id!!)).isTrue()
+    }
+
+    @Test
+    fun `admin manages employees hashes reset passwords and cannot disable self`() {
+        val jwt = token("admin")
+        mvc.perform(post("/api/v1/users").header("Authorization", "Bearer $jwt").contentType("application/json")
+            .content("""{"username":"employee","fullName":"Nhân viên","password":"employee-password-123","role":"ROLE_STAFF"}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.password").doesNotExist())
+        val employee = users.findByUsername("employee")!!
+        mvc.perform(put("/api/v1/users/${employee.id}").header("Authorization", "Bearer $jwt").contentType("application/json")
+            .content("""{"fullName":"Đã sửa","role":"ROLE_ADMIN","isActive":true,"password":"new-password-12345"}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.role").value("ROLE_ADMIN"))
+        assertThat(passwords.matches("new-password-12345", users.findById(employee.id!!).orElseThrow().password)).isTrue()
+        mvc.perform(put("/api/v1/users/${admin.id}").header("Authorization", "Bearer $jwt").contentType("application/json")
+            .content("""{"fullName":"Admin","role":"ROLE_STAFF","isActive":false}"""))
+            .andExpect(status().isConflict)
+        mvc.perform(get("/api/v1/users").param("q", "employee").header("Authorization", "Bearer $jwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.totalElements").value(1))
+    }
+
+    @Test
+    fun `live connector source requires login accepts username and stops when session ends`() {
+        mvc.perform(get("/api/v1/live-connector")).andExpect(status().isUnauthorized)
+        val live = sessions.saveAndFlush(LiveSession(title = "Connector test"))
+        val jwt = token()
+        mvc.perform(post("/api/v1/live-connector").header("Authorization", "Bearer $jwt")
+            .contentType("application/json").content("""{"liveSessionId":${live.id},"username":"https://www.tiktok.com/@nonkgaminggg/live"}"""))
+            .andExpect(status().isOk).andExpect(jsonPath("$.username").value("nonkgaminggg"))
+        assertThat(connectorSources.findById(1).orElseThrow().liveSessionId).isEqualTo(live.id)
+        live.endTime = java.time.Instant.now(); sessions.saveAndFlush(live)
+        mvc.perform(get("/api/v1/live-connector").header("Authorization", "Bearer $jwt"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.enabled").value(false))
+        mvc.perform(post("/api/v1/live-connector").header("Authorization", "Bearer $jwt")
+            .contentType("application/json").content("""{"liveSessionId":${live.id},"username":"@nonkgaminggg"}"""))
+            .andExpect(status().isConflict)
+    }
+
+    @Test
+    fun `swagger is public documents bearer auth and keeps business APIs protected`() {
+        mvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk)
+        mvc.perform(get("/v3/api-docs"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"))
+            .andExpect(jsonPath("$.paths['/api/v1/auth/login'].post.security").isEmpty)
+            .andExpect(jsonPath("$.security[0].bearerAuth").isArray)
+        mvc.perform(get("/api/v1/orders")).andExpect(status().isUnauthorized)
+    }
+
+    @Test
+    fun `bootstrap allows short local password preserves existing account and rejects short production password`() {
+        val arguments = DefaultApplicationArguments()
+        val existingHash = users.findByUsername("admin")!!.password
+        AdminBootstrap(users, passwords, "admin", "short", 12).run(arguments)
+        assertThat(users.findByUsername("admin")!!.password).isEqualTo(existingHash)
+        AdminBootstrap(users, passwords, "localadmin", "short", 1).run(arguments)
+        assertThat(passwords.matches("short", users.findByUsername("localadmin")!!.password)).isTrue()
+        assertThatThrownBy { AdminBootstrap(users, passwords, "productionadmin", "short", 12).run(arguments) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(users.findByUsername("productionadmin")).isNull()
     }
 
     @Test
