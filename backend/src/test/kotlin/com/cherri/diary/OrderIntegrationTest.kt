@@ -73,6 +73,69 @@ class OrderIntegrationTest {
     }
 
     @Test
+    fun `comment only draft is accepted by HTTP keeps evidence and cannot confirm before products`() {
+        val body = FastCreateRequest(UUID.randomUUID(), emptyList(), customerName = "Khách mới", commentRaw = "Giữ giúp mình mẫu áo này")
+        val part = MockMultipartFile("order", "", "application/json", json.writeValueAsBytes(body))
+        val response = mvc.perform(multipart("/api/v1/orders/fast-create").file(part).header("Authorization", "Bearer ${token()}"))
+            .andExpect(status().isOk).andExpect(jsonPath("$.status").value("DRAFT"))
+            .andExpect(jsonPath("$.items").isEmpty).andExpect(jsonPath("$.commentRaw").value(body.commentRaw))
+            .andReturn().response
+        val id = json.readTree(response.contentAsString)["id"].asLong()
+        assertThat(products.findByShortCode("A1")!!.stockQuantity).isEqualTo(10)
+        assertThatThrownBy { orderService.updateStatus(id, OrderStatus.CONFIRMED) }.isInstanceOf(ApiException::class.java)
+        orderService.updateStatus(id, OrderStatus.CANCELLED)
+        assertThat(customers.findAll().single().totalOrders).isZero()
+        assertThat(products.findByShortCode("A1")!!.stockQuantity).isEqualTo(10)
+    }
+
+    @Test
+    fun `draft products can be filled later with retries reserving once and correct live revenue`() {
+        val live = sessions.saveAndFlush(LiveSession(title = "Draft live"))
+        val request = FastCreateRequest(UUID.randomUUID(), emptyList(), tiktokId = "draftbuyer", liveSessionId = live.id)
+        val draft = orderService.fastCreate(staff.id!!, request, null)
+        assertThat(orderService.fastCreate(staff.id!!, request, null).id).isEqualTo(draft.id)
+        val lines = listOf(QuickOrderItem("A1", 2))
+        val filled = orderService.completeDraft(draft.id, lines)
+        assertThat(filled.status).isEqualTo(OrderStatus.DRAFT)
+        assertThat(filled.subtotalAmount).isEqualByComparingTo("200.00")
+        orderService.completeDraft(draft.id, lines)
+        assertThat(products.findByShortCode("A1")!!.stockQuantity).isEqualTo(8)
+        assertThat(sessions.findById(live.id!!).orElseThrow().totalRevenue).isEqualByComparingTo("200.00")
+        orderService.updateStatus(draft.id, OrderStatus.CONFIRMED)
+        orderService.updateStatus(draft.id, OrderStatus.CANCELLED)
+        assertThat(products.findByShortCode("A1")!!.stockQuantity).isEqualTo(10)
+        assertThat(sessions.findById(live.id!!).orElseThrow().totalRevenue).isEqualByComparingTo("0.00")
+        assertThat(sessions.findById(live.id!!).orElseThrow().totalOrders).isZero()
+    }
+
+    @Test
+    fun `quick checkout creates new product atomically and retry does not create duplicate stock`() {
+        val request = FastCreateRequest(UUID.randomUUID(), listOf(QuickOrderItem("live99", 2, BigDecimal("125.00"))), tiktokId = "buyer99", customerName = "Khách Live")
+        val first = orderService.fastCreate(staff.id!!, request, null)
+        val created = products.findByShortCode("LIVE99")!!
+        assertThat(created.name).isEqualTo("LIVE99")
+        assertThat(created.sellingPrice).isEqualByComparingTo("125.00")
+        assertThat(created.stockQuantity).isZero()
+        assertThat(first.subtotalAmount).isEqualByComparingTo("250.00")
+        assertThat(orderService.fastCreate(staff.id!!, request, null).id).isEqualTo(first.id)
+        assertThat(products.count()).isEqualTo(2)
+        orderService.updateStatus(first.id, OrderStatus.CANCELLED)
+        assertThat(products.findByShortCode("LIVE99")!!.stockQuantity).isEqualTo(2)
+    }
+
+    @Test
+    fun `new products roll back with invalid checkout and existing prices cannot be overridden`() {
+        val bad = FastCreateRequest(UUID.randomUUID(), listOf(QuickOrderItem("A0NEW77", 1, BigDecimal("100")), QuickOrderItem("A1", 11)), tiktokId = "buyer77")
+        assertThatThrownBy { orderService.fastCreate(staff.id!!, bad, null) }.isInstanceOf(ApiException::class.java)
+        assertThat(products.findByShortCode("A0NEW77")).isNull()
+        val existing = FastCreateRequest(UUID.randomUUID(), listOf(QuickOrderItem("A1", 1, BigDecimal("1"))), tiktokId = "buyer77")
+        assertThat(orderService.fastCreate(staff.id!!, existing, null).subtotalAmount).isEqualByComparingTo("100.00")
+        val missingPrice = FastCreateRequest(UUID.randomUUID(), listOf(QuickOrderItem("NEW88", 1)), tiktokId = "buyer88")
+        assertThatThrownBy { orderService.fastCreate(staff.id!!, missingPrice, null) }.isInstanceOf(ApiException::class.java)
+        assertThat(products.findByShortCode("NEW88")).isNull()
+    }
+
+    @Test
     fun `management protects costs supports search archive and blacklist without losing contacts`() {
         val staffJwt = token(); val adminJwt = token("admin")
         mvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer $staffJwt"))

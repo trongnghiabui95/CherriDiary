@@ -26,6 +26,7 @@ interface ApiService {
         @Query("orderCode") orderCode: String? = null, @Query("status") status: String? = null,
         @Query("channel") channel: String? = null, @Query("page") page: Int = 0, @Query("size") size: Int = 20): PageView<OrderView>
     @PUT("orders/{id}/status") suspend fun status(@Path("id") id: Long, @Body request: StatusRequest): OrderView
+    @PUT("orders/{id}/items") suspend fun draftItems(@Path("id") id: Long, @Body request: DraftItemsRequest): OrderView
     @PUT("orders/{id}/payment") suspend fun payment(@Path("id") id: Long, @Body request: PaymentRequest): OrderView
     @PUT("orders/{id}/tracking") suspend fun tracking(@Path("id") id: Long, @Body request: TrackingRequest): OrderView
     @GET("products") suspend fun products(@Query("page") page: Int = 0, @Query("size") size: Int = 100, @Query("q") q: String = ""): PageView<ProductView>

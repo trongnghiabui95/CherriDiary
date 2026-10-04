@@ -20,13 +20,15 @@ data class ParsedItem(val shortCode: String, val quantity: Int, val product: Pro
 data class ParsedComment(val commentRaw: String, val phoneNumber: String?, val tiktokId: String?,
     val customer: CustomerView?, val items: List<ParsedItem>, val isBlacklisted: Boolean, val warnings: List<String>)
 data class ParseCommentRequest(val comment: String)
-data class QuickOrderItem(val shortCode: String, val quantity: Int)
+data class QuickOrderItem(val shortCode: String, val quantity: Int, val newProductPrice: BigDecimal? = null)
 data class FastCreateRequest(val requestId: String, val items: List<QuickOrderItem>, val customerId: Long? = null,
     val customerName: String? = null, val phoneNumber: String? = null, val tiktokId: String? = null,
     val facebookId: String? = null, val address: String? = null, val liveSessionId: Long? = null,
     val channel: String = "TIKTOK", val depositAmount: BigDecimal = BigDecimal.ZERO,
     val shippingFee: BigDecimal = BigDecimal.ZERO, val paymentMethod: String = "COD",
-    val commentRaw: String? = null, val acknowledgeBlacklist: Boolean = false)
+    val commentRaw: String? = null, val acknowledgeBlacklist: Boolean = false, val status: String = "CONFIRMED")
+
+data class DraftItemsRequest(val items: List<QuickOrderItem>)
 data class OrderItemView(val shortCode: String, val quantity: Int, val priceAtPurchase: BigDecimal)
 data class OrderView(val id: Long, val orderCode: String, val customer: CustomerView, val channel: String,
     val subtotalAmount: BigDecimal, val depositAmount: BigDecimal, val shippingFee: BigDecimal,

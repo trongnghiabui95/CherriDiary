@@ -98,3 +98,19 @@ Admin routes:
 - `GET /users?q=&page=&size=`; existing `POST /users` creates an employee/admin. `PUT /users/{id}` accepts `{fullName,role,isActive,password?}`, where roles are `ROLE_STAFF` or `ROLE_ADMIN`; omitted/empty password leaves it unchanged. Admin cannot disable or demote the current account. Password reset does not revoke previously issued tokens; disabling an account rejects subsequent API requests.
 
 Lists use page 0 and size 20 by default, maximum size 100. Products retain their original short code after creation.
+
+### Mã hàng phát sinh khi livestream
+
+Trong form Chốt đơn nhanh, có thể nhập mã chưa được tạo trong danh mục. Nhập giá bán cho từng mã mới rồi bấm Chốt đơn ngay: backend tạo sản phẩm và đơn trong cùng giao dịch. Tên sản phẩm bằng mã viết hoa, giá vốn ban đầu 0 (chưa được bổ sung), trạng thái ACTIVE; số lượng nhập ban đầu bằng lượng của đơn và được trừ ngay nên tồn sau chốt là 0. Admin bổ sung tên/giá vốn/tồn kho trong Cài đặt → Sản phẩm. Mã đã có luôn dùng giá và kiểm tra tồn kho trên server, không cho giá nhập nhanh ghi đè. Chốt thất bại không để lại sản phẩm mới; retry cùng requestId không tạo đơn/sản phẩm trùng.
+
+API `orders/fast-create`: mỗi dòng `items` hỗ trợ `newProductPrice` (số không âm, tối đa 2 chữ số thập phân), chỉ dùng để tạo mã chưa có. Ví dụ `{"shortCode":"LIVE99","quantity":2,"newProductPrice":125000}`. Thiếu giá cho mã mới trả lỗi nhập giá, không yêu cầu tạo sản phẩm trước trong danh mục.
+
+### Đơn nháp chưa có mã hàng và bàn phím popup
+
+Để trống mã hàng trong popup Chốt đơn để lưu DRAFT; cần có thông tin khách hoặc comment. API `/orders/fast-create` chấp nhận `items: []` và luôn ép trạng thái DRAFT cho trường hợp này, không giữ kho. Comment/ảnh bằng chứng được giữ lại, retry requestId không tạo trùng. Đơn chưa có hàng không được xác nhận hoặc giao đi. Chưa có tiền hàng thì không nhập cọc vượt tổng tiền.
+
+Trong tab Đơn hàng, nhấn đơn nháp → **Bổ sung mã hàng cho đơn nháp** → nhập mã/số lượng, giá nếu mã mới → Lưu → **Đổi trạng thái → CONFIRMED**. API `PUT /api/v1/orders/{id}/items` nhận `{items:[{shortCode,quantity,newProductPrice?}]}`; chỉ bổ sung cho đơn nháp chưa có hàng. Retry cùng danh sách không giữ kho hai lần, thay danh sách đã lưu bị từ chối. Khi bổ sung, kiểm tra giá/tồn kho và cập nhật doanh thu phiên live cùng giao dịch. Có thể bổ sung sau khi phiên live kết thúc.
+
+Popup dùng Android Views: ẩn IME và clear focus khi xác nhận, vuốt hoặc chạm ra ngoài ô nhập; nút **Ẩn bàn phím** là thao tác trực tiếp. BottomSheet mở expanded, dùng adjustResize và padding theo IME/system insets để cuộn được tới nút xác nhận khi bàn phím mở.
+
+Migration V3 cho phép khách tạm chưa có thông tin liên hệ và đơn DRAFT chưa giữ kho. Chỉ cập nhật hai ràng buộc liên quan; không xóa bảng/dữ liệu. Các API tạo khách thông thường vẫn yêu cầu thông tin liên hệ.

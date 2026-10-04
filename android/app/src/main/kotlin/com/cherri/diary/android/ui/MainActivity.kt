@@ -414,8 +414,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun manageOrder(order: OrderView) {
-        AlertDialog.Builder(this).setTitle(order.orderCode).setItems(arrayOf("Đổi trạng thái", "Ghi nhận thanh toán", "Mã vận đơn", "In đơn / Lưu PDF")) { _, option ->
+        val options = arrayOf("Đổi trạng thái", "Ghi nhận thanh toán", "Mã vận đơn", "In đơn / Lưu PDF") + if (order.status == "DRAFT" && order.items.isEmpty()) arrayOf("Bổ sung mã hàng cho đơn nháp") else emptyArray()
+        AlertDialog.Builder(this).setTitle(order.orderCode).setItems(options) { _, option ->
             when (option) {
+                4 -> {
+                    val form = column()
+                    form.label("${order.customer.name}\nComment: ${order.commentRaw ?: "Không có"}")
+                    val lines = form.field("Mã và số lượng: A1 2, V2 1")
+                    val price = form.field("Giá bán cho mã mới (đ, tùy chọn)", type = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+                    form.label("Mã đã có dùng giá server. Với nhiều mã mới khác giá, hãy tạo trong Sản phẩm trước.")
+                    val sheet = AlertDialog.Builder(this).setTitle("Bổ sung hàng · ${order.orderCode}").setView(form).setPositiveButton("Lưu", null).setNegativeButton("Đóng", null).create()
+                    sheet.setOnShowListener {
+                        sheet.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                        sheet.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { network {
+                            val parsed = lines.text.toString().split(',').map { line ->
+                                val match = Regex("^\\s*([A-Za-z][A-Za-z0-9_-]{0,29})(?:\\s+(\\d+))?\\s*$").matchEntire(line) ?: error("Nhập dạng A1 2, V2 1")
+                                QuickOrderItem(match.groupValues[1], match.groupValues[2].ifBlank { "1" }.toInt(), price.text.toString().takeIf { it.isNotBlank() }?.toBigDecimal())
+                            }
+                            val button = sheet.getButton(AlertDialog.BUTTON_POSITIVE); button.isEnabled = false
+                            try { cherri.api.service().draftItems(order.id, DraftItemsRequest(parsed)); sheet.dismiss(); loadOrders(); toast("Đã bổ sung hàng. Có thể xác nhận đơn nháp.") }
+                            finally { button.isEnabled = true }
+                        } }
+                    }
+                    sheet.show()
+                }
                 3 -> printOrder(order)
                 0 -> {
                     val targets = when (order.status) {

@@ -56,10 +56,11 @@ data class ParsedComment(val commentRaw: String, val phoneNumber: String?, val t
 data class QuickOrderItem(
     @field:Pattern(regexp = "[A-Za-z][A-Za-z0-9_-]{0,29}") val shortCode: String,
     @field:Min(1) @field:Max(10000) val quantity: Int = 1,
+    @field:DecimalMin("0") @field:Digits(integer = 17, fraction = 2) val newProductPrice: BigDecimal? = null,
 )
 data class FastCreateRequest(
     val requestId: UUID,
-    @field:Valid @field:Size(min = 1, max = 50) val items: List<QuickOrderItem>,
+    @field:Valid @field:Size(max = 50) val items: List<QuickOrderItem>,
     @field:Positive val customerId: Long? = null,
     @field:Size(max = 150) val customerName: String? = null,
     @field:Size(max = 20) val phoneNumber: String? = null,
@@ -76,6 +77,7 @@ data class FastCreateRequest(
     val status: OrderStatus = OrderStatus.CONFIRMED,
 )
 data class StatusRequest(val status: OrderStatus)
+data class DraftItemsRequest(@field:Valid @field:Size(min = 1, max = 50) val items: List<QuickOrderItem>)
 data class PaymentRequest(
     @field:DecimalMin("0") @field:Digits(integer = 17, fraction = 2) val depositAmount: BigDecimal,
     @field:DecimalMin("0") @field:Digits(integer = 17, fraction = 2) val paidAmount: BigDecimal,

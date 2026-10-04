@@ -39,6 +39,7 @@ class OrderController(private val orders: OrderService, private val parser: Comm
         @RequestParam(defaultValue = "20") size: Int) = orders.list(phone, tiktokId, orderCode, status, channel, page, size)
     @GetMapping("/{id}") fun get(@PathVariable id: Long) = orders.get(id)
     @PutMapping("/{id}/status") fun status(@PathVariable id: Long, @Valid @RequestBody request: StatusRequest) = orders.updateStatus(id, request.status)
+    @PutMapping("/{id}/items") fun items(@PathVariable id: Long, @Valid @RequestBody request: DraftItemsRequest) = orders.completeDraft(id, request.items)
     @PutMapping("/{id}/payment") fun payment(@PathVariable id: Long, @Valid @RequestBody request: PaymentRequest) = orders.updatePayment(id, request)
     @PutMapping("/{id}/tracking") fun tracking(@PathVariable id: Long, @Valid @RequestBody request: TrackingRequest) = orders.updateTracking(id, request)
 }
