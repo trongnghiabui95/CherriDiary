@@ -21,7 +21,7 @@ class JwtAuthenticationFilter(private val decoder: JwtDecoder, private val users
             try {
                 if (!header.startsWith("Bearer ")) throw JwtException("Invalid scheme")
                 val jwt = decoder.decode(header.removePrefix("Bearer "))
-                val id = jwt.subject.toLongOrNull() ?: throw JwtException("Invalid subject")
+                val id = jwt.subject?.toLongOrNull() ?: throw JwtException("Invalid subject")
                 val user = users.findById(id).orElse(null)
                 if (user == null || !user.isActive) throw JwtException("Inactive user")
                 SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(

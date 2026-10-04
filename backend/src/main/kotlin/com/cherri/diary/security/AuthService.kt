@@ -57,6 +57,6 @@ class AdminBootstrap(private val users: UserRepository, private val passwords: P
         require(minimumPasswordLength >= 1 && password.length >= minimumPasswordLength && password.toByteArray(Charsets.UTF_8).size <= 72) {
             "ADMIN_PASSWORD must contain $minimumPasswordLength+ characters and at most 72 UTF-8 bytes"
         }
-        users.save(User(normalized, passwords.encode(password), "Quản trị Cherri Diary", Role.ROLE_ADMIN))
+        users.save(User(normalized, requireNotNull(passwords.encode(password)), "Quản trị Cherri Diary", Role.ROLE_ADMIN))
     }
 }

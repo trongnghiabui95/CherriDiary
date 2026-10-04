@@ -35,7 +35,7 @@ class LiveGatewayIntegrationTest {
 
     @Test
     fun `authenticated websocket receives its session comments once and revocation closes it`() {
-        val user = users.saveAndFlush(User("gateway", passwords.encode("test-password-12345"), "Gateway"))
+        val user = users.saveAndFlush(User("gateway", requireNotNull(passwords.encode("test-password-12345")), "Gateway"))
         val live = sessions.saveAndFlush(LiveSession(title = "Live A"))
         val other = sessions.saveAndFlush(LiveSession(title = "Live B"))
         val token = auth.login(LoginRequest("gateway", "test-password-12345"), "gateway-test").accessToken

@@ -13,7 +13,7 @@ fun Context.column() = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     setPadding(24, 20, 24, 24)
 }
-fun LinearLayout.label(value: String) = TextView(context).apply { text = value; textSize = 16f; setPadding(0, 12, 0, 8) }.also(::addView)
+fun LinearLayout.label(value: String) = TextView(context).apply { text = value; textSize = 16f; setTextColor(0xFF212121.toInt()); setPadding(0, 12, 0, 8) }.also(::addView)
 fun LinearLayout.field(hint: String, value: String = "", type: Int = InputType.TYPE_CLASS_TEXT) = EditText(context).apply {
     this.hint = hint; setText(value); inputType = type
 }.also(::addView)

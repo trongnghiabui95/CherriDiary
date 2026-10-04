@@ -4,7 +4,7 @@ import com.cherri.diary.api.*
 import com.cherri.diary.domain.LiveSessionRepository
 import com.cherri.diary.domain.UserRepository
 import com.cherri.diary.security.StaffPrincipal
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size

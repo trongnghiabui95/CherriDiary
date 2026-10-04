@@ -67,7 +67,7 @@ class CatalogService(private val products: ProductRepository, private val catego
     @Transactional
     fun user(request: UserRequest): UserView {
         if (request.password.toByteArray(Charsets.UTF_8).size > 72) invalid("Mật khẩu tối đa 72 byte UTF-8")
-        return users.saveAndFlush(User(request.username.lowercase(Locale.ROOT), passwords.encode(request.password), request.fullName.trim(), request.role)).toView()
+        return users.saveAndFlush(User(request.username.lowercase(Locale.ROOT), requireNotNull(passwords.encode(request.password)), request.fullName.trim(), request.role)).toView()
     }
     @Transactional(readOnly = true)
     fun liveSessions(page: Int, size: Int): PageView<LiveSessionView> {

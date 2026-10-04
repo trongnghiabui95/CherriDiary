@@ -5,13 +5,13 @@ import com.cherri.diary.domain.*
 import com.cherri.diary.service.*
 import com.cherri.diary.security.AdminBootstrap
 import org.springframework.boot.DefaultApplicationArguments
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.mock.web.MockMultipartFile
 import org.springframework.security.crypto.password.PasswordEncoder
@@ -58,7 +58,7 @@ class OrderIntegrationTest {
     fun setup() {
         connectorSources.deleteAll()
         orders.deleteAll(); products.deleteAll(); categories.deleteAll(); customers.deleteAll(); sessions.deleteAll(); users.deleteAll()
-        val hash = passwords.encode(password)
+        val hash = requireNotNull(passwords.encode(password))
         staff = users.saveAndFlush(User("staff", hash, "Staff", Role.ROLE_STAFF))
         admin = users.saveAndFlush(User("admin", hash, "Admin", Role.ROLE_ADMIN))
         product = products.saveAndFlush(Product(name = "Áo", shortCode = "A1", costPrice = BigDecimal("40.00"), sellingPrice = BigDecimal("100.00"), stockQuantity = 10))

@@ -88,7 +88,7 @@ class ManagementController(private val users: UserRepository, private val produc
         val user = users.lockById(id) ?: missing("Không tìm thấy tài khoản")
         request.password?.takeIf { it.isNotEmpty() }?.let {
             if (it.length < 12 || it.toByteArray(Charsets.UTF_8).size > 72) invalid("Mật khẩu cần ít nhất 12 ký tự và tối đa 72 byte UTF-8")
-            user.password = passwords.encode(it)
+            user.password = requireNotNull(passwords.encode(it))
         }
         user.fullName = request.fullName.trim(); user.role = request.role; user.isActive = request.isActive
         return user.toView()
@@ -97,7 +97,7 @@ class ManagementController(private val users: UserRepository, private val produc
         if (page < 0 || size !in 1..100) invalid("page >= 0, size từ 1 đến 100")
         return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "id"))
     }
-    private fun <T> search(query: String, fields: List<String>): Specification<T> = Specification { root, _, cb ->
+    private fun <T : Any> search(query: String, fields: List<String>): Specification<T> = Specification { root, _, cb ->
         val q = query.trim().lowercase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         if (q.isEmpty()) cb.conjunction() else cb.or(*fields.map { cb.like(cb.lower(root.get(it)), "%$q%", '\\') }.toTypedArray())
     }

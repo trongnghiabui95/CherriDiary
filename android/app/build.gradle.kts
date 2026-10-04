@@ -13,10 +13,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        buildConfigField("String", "DEFAULT_API_URL", "\"https://a57a-113-172-183-146.ngrok-free.app/api/v1/\"")
+        buildConfigField("String", "DEFAULT_API_URL", "\"https://b160-113-172-183-146.ngrok-free.app/api/v1/\"")
     }
     buildTypes {
-        debug { buildConfigField("String", "DEFAULT_API_URL", "\"https://a57a-113-172-183-146.ngrok-free.app/api/v1/\"") }
+        debug { buildConfigField("String", "DEFAULT_API_URL", "\"https://b160-113-172-183-146.ngrok-free.app/api/v1/\"") }
         release { isMinifyEnabled = false }
     }
     buildFeatures { buildConfig = true; compose = true }
@@ -27,6 +27,7 @@ android {
 }
 
 kotlin {
+    jvmToolchain(21)
     compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
 }
 

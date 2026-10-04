@@ -3,7 +3,6 @@ package com.cherri.diary.android.ui
 import android.Manifest
 import android.view.View
 import android.widget.FrameLayout
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.cherri.diary.android.R
 import android.content.Intent
 import android.content.BroadcastReceiver
@@ -28,6 +27,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.cherri.diary.android.ui.design.*
 import com.cherri.diary.android.cherri
 import com.cherri.diary.android.data.*
 import com.cherri.diary.android.live.FloatingWindowService
@@ -44,7 +50,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var body: LinearLayout
     private val tabPages = mutableListOf<View>()
     private lateinit var dashboard: LinearLayout
-    private var selectedTab = 1
+    private var selectedTab by androidx.compose.runtime.mutableStateOf(1)
     private lateinit var results: LinearLayout
     private lateinit var phone: EditText
     private lateinit var nick: EditText
@@ -92,7 +98,7 @@ class MainActivity : AppCompatActivity() {
         if (cherri.tokens.token() == null) { login(); return }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFFF7F2F4.toInt())
+            setBackgroundColor(0xFFF8F9FA.toInt())
         }
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
@@ -100,13 +106,13 @@ class MainActivity : AppCompatActivity() {
             windowInsets
         }
         val header = column().apply { setPadding(dp(20), dp(12), dp(20), dp(4)) }
-        header.label("Cherri Diary").apply { textSize = 24f; setTextColor(0xFF81213E.toInt()); setTypeface(typeface, android.graphics.Typeface.BOLD) }
+        header.label("Cherri Diary").apply { textSize = 24f; setTextColor(0xFFD81B60.toInt()); setTypeface(typeface, android.graphics.Typeface.BOLD) }
         root.addView(header)
         val container = FrameLayout(this)
         root.addView(container, LinearLayout.LayoutParams(-1, 0, 1f))
         repeat(4) {
             body = column().apply { setPadding(dp(16), dp(12), dp(16), dp(24)) }
-            val scroll: View = if (it == 1) body.apply { visibility = View.GONE } else NestedScrollView(this).apply { addView(body); visibility = View.GONE }
+            val scroll: View = if (it == 0 || it == 1) body.apply { visibility = View.GONE } else NestedScrollView(this).apply { addView(body); visibility = View.GONE }
             container.addView(scroll, FrameLayout.LayoutParams(-1, -1))
             tabPages.add(scroll)
             when (it) {
@@ -118,24 +124,26 @@ class MainActivity : AppCompatActivity() {
         }
         (connectionBadge.parent as LinearLayout).removeView(connectionBadge)
         header.addView(connectionBadge)
-        val navigation = BottomNavigationView(this).apply {
-            labelVisibilityMode = BottomNavigationView.LABEL_VISIBILITY_LABELED
-            setBackgroundColor(android.graphics.Color.WHITE)
-            menu.add(0, 1, 0, "Tổng quan").setIcon(R.drawable.ic_tab_dashboard)
-            menu.add(0, 2, 1, "Live").setIcon(R.drawable.ic_tab_live)
-            menu.add(0, 3, 2, "Đơn hàng").setIcon(R.drawable.ic_tab_orders)
-            menu.add(0, 4, 3, "Cài đặt").setIcon(R.drawable.ic_tab_settings)
-            setOnItemSelectedListener { item ->
-                selectedTab = item.itemId
-                tabPages.forEachIndexed { index, view -> view.visibility = if (index + 1 == selectedTab) View.VISIBLE else View.GONE }
-                if (selectedTab == 1) loadDashboard()
-                if (selectedTab == 3) loadOrders()
-                true
+        selectedTab = savedInstanceState?.getInt("tab", 1)?.coerceIn(1, 4) ?: 1
+        root.removeView(header)
+        root.removeView(container)
+        setContent {
+            CherriTheme {
+                Scaffold(bottomBar = {
+                    BottomNavigationBar(CherriTab.entries[selectedTab - 1]) { tab ->
+                        selectedTab = tab.ordinal + 1
+                        tabPages.forEachIndexed { index, view -> view.visibility = if (index + 1 == selectedTab) View.VISIBLE else View.GONE }
+                        if (selectedTab == 1) loadDashboard()
+                        if (selectedTab == 3) loadOrders()
+                    }
+                }) { padding ->
+                    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize().padding(padding)) {
+                        AndroidView(factory = { header }, modifier = Modifier.fillMaxWidth())
+                        AndroidView(factory = { container }, modifier = Modifier.weight(1f).fillMaxWidth())
+                    }
+                }
             }
         }
-        root.addView(navigation, LinearLayout.LayoutParams(-1, -2))
-        setContentView(root)
-        navigation.selectedItemId = savedInstanceState?.getInt("tab", 1) ?: 1
         tabPages[selectedTab - 1].visibility = View.VISIBLE
         loadDashboard()
         ContextCompat.registerReceiver(this, overlayReceiver, IntentFilter(FloatingWindowService.STATE_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
@@ -147,42 +155,33 @@ class MainActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
     }
 
+    private var dashboardOrders by androidx.compose.runtime.mutableStateOf<List<OrderView>>(emptyList())
+    private var dashboardTotal by androidx.compose.runtime.mutableStateOf(0L)
+    private var dashboardLoading by androidx.compose.runtime.mutableStateOf(true)
+
     private fun createDashboard() {
-        dashboard.featureCard("Xin chào, ${cherri.tokens.name()}", "Tổng quan hoạt động bán hàng").label("Đang tải…")
+        dashboard.addView(androidx.compose.ui.platform.ComposeView(this).apply {
+            setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent { CherriTheme {
+                CherriDashboard(cherri.tokens.name(), dashboardOrders, dashboardTotal, dashboardLoading) { loadDashboard() }
+            } }
+        }, LinearLayout.LayoutParams(-1, -1))
     }
 
     private fun loadDashboard(): Unit = network {
-        val data = cherri.api.service().orders(size = 100)
-        connection(true)
-        dashboard.removeAllViews()
-        val welcome = dashboard.featureCard("Xin chào, ${cherri.tokens.name()}", "Tổng quan hoạt động bán hàng")
-        welcome.label("${data.totalElements} đơn trong hệ thống").apply { textSize = 26f; setTextColor(0xFFB22D54.toInt()) }
-        welcome.action("Làm mới", "secondary") { loadDashboard() }
-        val summary = dashboard.featureCard("Đơn gần đây", "Thống kê trên ${data.content.size} đơn mới nhất, tối đa 100 đơn")
-        val active = data.content.filter { it.status != "CANCELLED" }
-        summary.label("Giá trị đơn: ${money(active.fold(BigDecimal.ZERO) { total, order -> total + order.totalAmount })}")
-        summary.label("Đã thu: ${money(active.fold(BigDecimal.ZERO) { total, order -> total + order.depositAmount + order.paidAmount })}")
-        summary.label("Còn thu: ${money(active.fold(BigDecimal.ZERO) { total, order -> total + order.remainingAmount })}")
-        val chart = dashboard.featureCard("Trạng thái đơn", "Phân bố các đơn gần đây")
-        val labels = linkedMapOf("DRAFT" to "Nháp", "CONFIRMED" to "Đã chốt", "SHIPPING" to "Đang giao", "COMPLETED" to "Hoàn tất", "CANCELLED" to "Đã hủy")
-        labels.forEach { (status, title) ->
-            val count = data.content.count { it.status == status }
-            chart.label("$title · $count")
-            chart.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-                max = data.content.size.coerceAtLeast(1); progress = count
-                progressTintList = android.content.res.ColorStateList.valueOf(0xFFB22D54.toInt())
-                contentDescription = "$title: $count đơn"
-            }, LinearLayout.LayoutParams(-1, dp(8)))
-        }
-        dashboard.featureCard("Nhắc việc", "Theo dõi đơn và phiên live")
-            .label("${data.content.count { it.status == "DRAFT" }} đơn nháp cần kiểm tra · ${data.content.count { it.status == "CONFIRMED" }} đơn chờ giao\nPhiên live đang chọn: ${cherri.tokens.liveSessionId()?.toString() ?: "Chưa chọn"}")
+        dashboardLoading = true
+        try {
+            val data = cherri.api.service().orders(size = 100)
+            connection(true)
+            dashboardOrders = data.content
+            dashboardTotal = data.totalElements
+        } finally { dashboardLoading = false }
     }
-
     private fun createSystemSection() {
         body.addView(androidx.compose.ui.platform.ComposeView(this).apply {
             setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
-                com.cherri.diary.android.ui.management.ManagementTheme {
+                CherriTheme {
                     com.cherri.diary.android.ui.management.ManagementMenu { route ->
                         startActivity(Intent(this@MainActivity, com.cherri.diary.android.ui.management.ManagementActivity::class.java).putExtra("route", route))
                     }
@@ -244,7 +243,7 @@ class MainActivity : AppCompatActivity() {
         body.addView(androidx.compose.ui.platform.ComposeView(this).apply {
             layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
             setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-            setContent { com.cherri.diary.android.ui.management.ManagementTheme {
+            setContent { CherriTheme {
                 LiveCommentsScreen(liveComments.toList(), commentCount, liveStatus, receivingComments, liveUsername,
                     connect = { value, selectedId -> network {
                         require(value.isNotBlank()) { "Nhập @username TikTok" }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-deploy_dir="/d/Project Cherri/Compose Deploy App"
+deploy_dir="$project_root/../Compose Deploy App"
 if [[ "${1:-}" == '--help' ]]; then
   echo 'Usage: bash scripts/Deploy-TikTok-Connector.sh [--prepare]'
   echo '--prepare copies/builds the connector; otherwise it also starts the container.'

@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import com.cherri.diary.android.ui.design.*
 
 data class ReceivedComment(val key: Long, val event: LiveComment, val receivedAt: Instant = Instant.now())
 
@@ -41,9 +42,9 @@ data class ReceivedComment(val key: Long, val event: LiveComment, val receivedAt
             .collect { followNewest = it }
     }
     LaunchedEffect(comments.firstOrNull()?.key) { if (followNewest && !list.isScrollInProgress) list.scrollToItem(0) }
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Surface(shape = MaterialTheme.shapes.medium, tonalElevation = 1.dp) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("TikTok LIVE", fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -64,20 +65,17 @@ data class ReceivedComment(val key: Long, val event: LiveComment, val receivedAt
         }
         Text("$count comment nhận được · Giữ tối đa 200 comment", fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (comments.isEmpty()) Text("Chưa có comment. Tài khoản phải đang LIVE và connector đang chạy.", fontSize = 13.sp, modifier = Modifier.padding(16.dp))
-            LazyColumn(state = list, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(3.dp), contentPadding = PaddingValues(bottom = 64.dp)) {
+            if (comments.isEmpty() && status.contains("Đang kết nối", ignoreCase = true)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { CommentSkeleton() } }
+            } else if (comments.isEmpty()) Text("Chưa có comment. Tài khoản phải đang LIVE và connector đang chạy.", fontSize = 13.sp, modifier = Modifier.padding(16.dp))
+            LazyColumn(state = list, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 64.dp)) {
                 items(comments, key = { it.key }) { received ->
                     val event = received.event
-                    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surface) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Column(Modifier.weight(1f)) {
-                                Text(event.nickname?.takeIf { it.isNotBlank() } ?: event.tiktokId ?: "Khách TikTok", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${event.tiktokId?.let { "@${it.removePrefix("@")}" } ?: "TikTok"} · ${formatter.format(received.receivedAt)}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(event.comment, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            }
-                            OutlinedButton(onClick = { checkout(event) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), modifier = Modifier.heightIn(min = 48.dp)) { Text("Chốt đơn", fontSize = 11.sp) }
-                        }
-                    }
+                    CommentCard(name = event.nickname?.takeIf { it.isNotBlank() } ?: event.tiktokId ?: "Khách TikTok",
+                        handle = event.tiktokId?.let { "@${it.removePrefix("@")}" } ?: "TikTok",
+                        content = event.comment, time = formatter.format(received.receivedAt),
+                        status = if (Regex("(?<!\\d)0\\d{9}(?!\\d)").containsMatchIn(event.comment)) CommentStatus.New else CommentStatus.MissingPhone,
+                        onCheckout = { checkout(event) })
                 }
             }
             if (showTop) SmallFloatingActionButton(onClick = { scope.launch { followNewest = true; list.animateScrollToItem(0) } }, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) {

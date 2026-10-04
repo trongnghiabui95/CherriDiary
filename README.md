@@ -57,12 +57,12 @@ Tiền và trạng thái: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Chạy backend trên Windows
 
-Cần JDK 17 và PostgreSQL 16, hoặc Docker Desktop để chạy database bằng Compose.
+Cần JDK 26 và PostgreSQL 16, hoặc Docker Desktop để chạy database bằng Compose. Backend dùng Gradle 9.6, Kotlin 2.4.20 và Spring Boot 4.1.1.
 
 ```powershell
-.\scripts\Initialize-DevConfig.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Initialize-DevConfig.ps1
 # Tạo .env với cấu hình DB và JWT/admin secret ngẫu nhiên, không ghi đè file đã có.
-.\scripts\Start-Backend.ps1 -StartDatabase
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-Backend.ps1 -StartDatabase
 ```
 
 Nếu đã có PostgreSQL, tạo database `cherridiary_db`, cấu hình `DB_URL`, `DB_USER`, `DB_PASSWORD`
@@ -127,10 +127,11 @@ bash scripts/Deploy-Backend.sh
 bash scripts/Deploy-Android.sh
 ```
 
-Đích mặc định: `D:\Project Cherri\Compose Deploy App`. Backend build `bootJar`, chép thành `backend.jar`,
+Đích mặc định: thư mục `Compose Deploy App` nằm cạnh thư mục project (trên máy này là `D:\Cherri Project\Compose Deploy App`). Backend build `bootJar`, chép thành `backend.jar`,
 dừng và tạo lại riêng service `backend` bằng Compose chạy nền. Folder đích cần Compose có service `backend`
-và `.env` đã cấu hình. Dừng backend chạy trong terminal cũ trước nếu nó đang dùng cổng 8080.
-Android build bản debug và chép `app-debug.apk`; cài APK đó lên thiết bị để cập nhật app.
+và `.env` đã cấu hình. Service `backend` phải dùng image có Java 26 vì JAR được biên dịch cho JVM 26.
+Dừng backend chạy trong terminal cũ trước nếu nó đang dùng cổng 8080.
+Android dùng wrapper riêng với Gradle 9.5 và toolchain JDK 21 (bytecode JVM 17), build bản debug và chép `app-debug.apk`; cài APK đó lên thiết bị để cập nhật app.
 Có thể truyền đường dẫn đích khác, ví dụ `bash scripts/Deploy-Android.sh "/d/My Deploy"`.
 
 - [TokenManager.kt](android/app/src/main/kotlin/com/cherri/diary/android/data/TokenManager.kt): EncryptedSharedPreferences + Android Keystore, tắt backup dữ liệu phiên.
@@ -146,7 +147,7 @@ Có thể truyền đường dẫn đích khác, ví dụ `bash scripts/Deploy-A
 Cần Android SDK Platform 35 + Build Tools 35.0.0. Mở thư mục `android/` bằng Android Studio hoặc khai báo `sdk.dir` trong `android/local.properties`.
 
 ```powershell
-.\gradlew.bat -p android :app:assembleDebug :app:lintDebug
+.\android\gradlew.bat -p android :app:assembleDebug :app:lintDebug
 ```
 
 APK: `android/app/build/outputs/apk/debug/app-debug.apk`.
@@ -167,7 +168,7 @@ PixelCopy không chụp được tùy ý nội dung một ứng dụng khác, n�
 
 ```powershell
 .\gradlew.bat :backend:test :backend:bootJar
-.\gradlew.bat -p android :app:assembleDebug :app:lintDebug
+.\android\gradlew.bat -p android :app:assembleDebug :app:lintDebug
 ```
 
 Backend tests tự khởi tạo PostgreSQL 17.6 bằng binary embedded trên cổng ngẫu nhiên, chạy Flyway, validate mapping rồi kiểm tra transaction và HTTP/WebSocket; không cần Docker cho tests.
