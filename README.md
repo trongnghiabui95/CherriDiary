@@ -191,3 +191,9 @@ Mở tab **Cài đặt** → chọn **Sản phẩm**, **Danh sách đen** hoặc
 - **Tài khoản:** xem tài khoản đang đăng nhập và đăng xuất. Admin có nút **Quản lý nhân viên** để thêm tài khoản, đổi tên, phân quyền, đặt mật khẩu mới hoặc khóa/mở khóa. Mật khẩu mới tối thiểu 12 ký tự, tối đa 72 byte UTF-8. Không thể tự khóa/hạ quyền Admin đang sử dụng. Khóa tài khoản có hiệu lực với các yêu cầu API tiếp theo; đặt lại mật khẩu chưa thu hồi các token đã cấp, chúng hết hạn theo cấu hình JWT.
 
 Các API quản trị kiểm tra quyền Admin trên backend; giá vốn chỉ trả trong `/api/v1/management/products`. Ảnh tải lên lưu trong thư mục uploads đang được mount của backend, không lưu trong APK.
+
+### Danh sách comment Live nhỏ gọn
+
+Tab Live dùng Compose LazyColumn trong vùng chiều cao còn lại (không cuộn lồng nhau). Mỗi hàng có nickname, username, giờ nhận tại ứng dụng (HH:mm:ss theo múi giờ điện thoại), nội dung tối đa hai dòng và nút Chốt đơn nhỏ bên phải; nội dung đầy đủ được truyền vào popup chốt đơn. Giữ tối đa 200 comment trong bộ nhớ; số đếm là tổng số đã nhận trong lượt kết nối.
+
+Khi ở đầu danh sách, theo dõi comment mới. Khi cuộn xem comment cũ, stable keys giữ vị trí đang xem; nút **↑ Comment mới nhất** dùng animateScrollToItem(0). Comment quá giới hạn 200 bị loại khỏi cuối danh sách. Cấu hình TikTok LIVE tự thu gọn sau khi nhận comment đầu tiên; bấm Cấu hình để sửa username, chọn ID phiên có sẵn hoặc kết thúc phiên. Chốt thủ công, ảnh bill và nút nổi nằm trong thanh thao tác phía dưới.

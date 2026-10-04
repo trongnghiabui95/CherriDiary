@@ -26,6 +26,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import com.cherri.diary.android.cherri
 import com.cherri.diary.android.data.*
 import com.cherri.diary.android.live.FloatingWindowService
@@ -52,12 +54,16 @@ class MainActivity : AppCompatActivity() {
     private var page = 0
     private var totalPages = 1
     private var liveClient: LiveCommentClient? = null
-    private lateinit var liveResults: LinearLayout
+    private val liveComments = androidx.compose.runtime.mutableStateListOf<ReceivedComment>()
+    private var liveStatus by androidx.compose.runtime.mutableStateOf("Chưa kết nối")
+    private var liveUsername by androidx.compose.runtime.mutableStateOf("")
+    private var receivingComments by androidx.compose.runtime.mutableStateOf(false)
+    private var receivedSequence = 0L
     private var manualComment = ""
-    private lateinit var gatewayStatus: TextView
-    private lateinit var commentCounter: TextView
-    private lateinit var emptyComments: TextView
-    private var commentCount = 0
+
+
+
+    private var commentCount by androidx.compose.runtime.mutableStateOf(0)
     private lateinit var connectionBadge: TextView
     private lateinit var overlaySwitch: SwitchMaterial
     private lateinit var checkoutSwitch: SwitchMaterial
@@ -100,7 +106,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(container, LinearLayout.LayoutParams(-1, 0, 1f))
         repeat(4) {
             body = column().apply { setPadding(dp(16), dp(12), dp(16), dp(24)) }
-            val scroll = NestedScrollView(this).apply { addView(body); visibility = View.GONE }
+            val scroll: View = if (it == 1) body.apply { visibility = View.GONE } else NestedScrollView(this).apply { addView(body); visibility = View.GONE }
             container.addView(scroll, FrameLayout.LayoutParams(-1, -1))
             tabPages.add(scroll)
             when (it) {
@@ -235,68 +241,44 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createLiveSection() {
-        val source = body.featureCard("TikTok LIVE", "Kết nối tài khoản đang phát và nhận comment tự động")
-        val username = source.field("@username hoặc link TikTok Live", type = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
-        gatewayStatus = source.label("Chưa kết nối · Nhập tài khoản TikTok để bắt đầu").apply {
-            textSize = 13f; setTextColor(0xFF75656D.toInt())
-        }
-        val advanced = column().apply { visibility = View.GONE; setPadding(0, 0, 0, 0) }.also(source::addView)
-        val session = advanced.field("ID phiên Cherri (để trống để tự tạo)", cherri.tokens.liveSessionId()?.toString() ?: "", InputType.TYPE_CLASS_NUMBER)
-        source.action("Kết nối & lấy comment") { network {
-            val value = username.text.toString().trim()
-            require(value.isNotBlank()) { "Nhập @username TikTok, ví dụ @nonkgaminggg" }
-            gatewayStatus.text = "Đang gửi yêu cầu kết nối…"
-            val id = session.text.toString().toLongOrNull()?.takeIf { it > 0 }
-                ?: cherri.api.service().createSession(LiveSessionRequest("Live $value", null)).id
-            cherri.tokens.setLiveSessionId(id); session.setText(id.toString())
-            liveResults.removeAllViews(); commentCount = 0; commentCounter.text = "Comment mới · 0"
-            emptyComments.visibility = View.VISIBLE
-            connectLive(id)
-            cherri.api.service().selectLiveSource(LiveSourceRequest(id, value))
-            gatewayStatus.text = "Đã chọn $value · Phiên #$id · Chờ comment mới"
-        } }
-        val actions = source.actionRow()
-        actions.action("Chọn ID phiên", "secondary") { advanced.visibility = if (advanced.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
-        actions.action("Kết thúc", "danger") {
-            val id = cherri.tokens.liveSessionId()
-            if (id == null) toast("Chưa chọn phiên live")
-            else AlertDialog.Builder(this).setMessage("Kết thúc phiên #$id và dừng nhận comment?")
-                .setPositiveButton("Kết thúc") { _, _ -> network {
-                    cherri.api.service().endSession(id); cherri.tokens.setLiveSessionId(null)
-                    session.text.clear(); liveClient?.close(); gatewayStatus.text = "Phiên đã kết thúc"
-                } }.setNegativeButton("Đóng", null).show()
-        }
-        val feed = body.featureCard("Comment trực tiếp", "Tên hiển thị và nội dung · Bấm Chốt đơn để điền nhanh")
-        commentCounter = feed.label("Comment mới · 0").apply { textSize = 13f }
-        emptyComments = feed.label("Chưa có comment mới. Tài khoản TikTok cần đang LIVE và connector Docker phải đang chạy.").apply {
-            setTextColor(0xFF75656D.toInt())
-        }
-        liveResults = column().apply { setPadding(0, 0, 0, 0) }
-        feed.addView(NestedScrollView(this).apply { addView(liveResults) }, LinearLayout.LayoutParams(-1, dp(420)))
+        body.addView(androidx.compose.ui.platform.ComposeView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
+            setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent { com.cherri.diary.android.ui.management.ManagementTheme {
+                LiveCommentsScreen(liveComments.toList(), commentCount, liveStatus, receivingComments, liveUsername,
+                    connect = { value, selectedId -> network {
+                        require(value.isNotBlank()) { "Nhập @username TikTok" }
+                        liveStatus = "Đang kết nối…"; receivingComments = false
+                        val id = selectedId ?: cherri.api.service().createSession(LiveSessionRequest("Live $value", null)).id
+                        cherri.api.service().selectLiveSource(LiveSourceRequest(id, value))
+                        cherri.tokens.setLiveSessionId(id); liveUsername = value
+                        liveComments.clear(); commentCount = 0; connectLive(id)
+                    } }, end = {
+                        val id = cherri.tokens.liveSessionId()
+                        if (id == null) toast("Chưa có phiên live")
+                        else AlertDialog.Builder(this@MainActivity).setMessage("Kết thúc phiên #$id?").setPositiveButton("Kết thúc") { _, _ -> network {
+                            cherri.api.service().endSession(id); cherri.tokens.setLiveSessionId(null); liveClient?.close()
+                            liveStatus = "Phiên đã kết thúc"; receivingComments = false
+                        } }.setNegativeButton("Đóng", null).show()
+                    }, checkout = { event -> showCheckout(event.comment, customerName = event.nickname ?: event.tiktokId, tiktokId = event.tiktokId) })
+            } }
+        })
         network {
             val selected = cherri.api.service().liveSource()
-            selected.username?.let { username.setText("@$it") }
+            liveUsername = selected.username?.let { "@$it" } ?: ""
             if (selected.enabled && selected.liveSessionId != null) {
-                cherri.tokens.setLiveSessionId(selected.liveSessionId); session.setText(selected.liveSessionId.toString())
-                connectLive(selected.liveSessionId)
+                cherri.tokens.setLiveSessionId(selected.liveSessionId); connectLive(selected.liveSessionId)
             }
         }
     }
     private fun createCheckoutSection() {
-        val card = body.featureCard("Chốt đơn thủ công & Live", "Thao tác nhanh trong phiên live")
-        checkoutSwitch = card.toggle("Bật nút chốt đơn Live")
+        val actions = body.actionRow()
+        checkoutSwitch = actions.toggle("Nút nổi")
         checkoutSwitch.setOnCheckedChangeListener { _, enabled -> if (!syncingOverlay) setOverlay(enabled) }
-        card.label("Nút chốt đơn Live dùng cùng nút nổi ở phần cấu hình.").textSize = 12f
-        val comment = card.field("Nhập comment để chốt thủ công…", type = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE)
-        comment.minLines = 2
-        val actions = card.actionRow()
-        actions.action("Chốt Từ Comment") { showCheckout(comment.text.toString()) }
-        actions.action("📷 Chốt Kèm Ảnh Bill / Comment Đã Lưu", "secondary") {
-            manualComment = comment.text.toString(); photo.launch("image/*")
-        }
+        actions.action("Chốt thủ công", "secondary") { showCheckout("") }
+        actions.action("Ảnh bill", "secondary") { manualComment = ""; photo.launch("image/*") }
         syncOverlay()
     }
-
     private fun createOrdersSection() {
         val card = body.featureCard("Quản lý đơn hàng & lịch sử", "Đơn gần đây · Nhấn vào đơn để cập nhật")
         phone = card.field("Lọc SĐT", type = InputType.TYPE_CLASS_PHONE)
@@ -368,23 +350,17 @@ class MainActivity : AppCompatActivity() {
         liveClient = LiveCommentClient(cherri.api, cherri.tokens, id,
             onComment = { event -> runOnUiThread {
                 if (!isFinishing && cherri.tokens.liveSessionId() == event.liveSessionId) {
-                    emptyComments.visibility = View.GONE
-                    commentCount++; commentCounter.text = "Comment mới · $commentCount · Hiển thị tối đa 60"
-                    gatewayStatus.text = "● Đang nhận comment · Phiên #$id"
-                    gatewayStatus.setTextColor(0xFF237A45.toInt())
-                    val name = event.nickname?.takeIf { it.isNotBlank() } ?: event.tiktokId ?: "Khách TikTok"
-                    val card = liveResults.featureCard(name, event.tiktokId?.let { "@$it" } ?: "TikTok")
-                    card.label(event.comment).apply { textSize = 17f; setTextColor(0xFF35252D.toInt()) }
-                    card.action("Chốt đơn", "secondary") { showCheckout(event.comment, customerName = name, tiktokId = event.tiktokId) }
-                    val view = liveResults.getChildAt(liveResults.childCount - 1)
-                    liveResults.removeView(view); liveResults.addView(view, 0)
-                    if (liveResults.childCount > 60) liveResults.removeViewAt(60)
+                    commentCount++
+                    liveStatus = "● Đang nhận comment · Phiên #$id"
+                    receivingComments = true
+                    liveComments.add(0, ReceivedComment(++receivedSequence, event))
+                    if (liveComments.size > 200) liveComments.removeAt(liveComments.lastIndex)
                 }
             } }, onError = { message -> runOnUiThread {
-                gatewayStatus.text = message; gatewayStatus.setTextColor(0xFFB3261E.toInt())
+                liveStatus = message; receivingComments = false
             } })
         liveClient?.connect()
-        gatewayStatus.text = "Đang kết nối gateway · Phiên #$id"
+        liveStatus = "Đang kết nối gateway · Phiên #$id"
     }    private fun loadOrders() = network {
         val data = cherri.api.service().orders(phone.text.toString().ifBlank { null }, nick.text.toString().ifBlank { null },
             code.text.toString().ifBlank { null }, status.selectedItem.toString().takeUnless { status.selectedItemPosition == 0 },
