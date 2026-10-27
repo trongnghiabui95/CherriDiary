@@ -85,7 +85,12 @@ data class PaymentRequest(
 )
 data class TrackingRequest(@field:NotBlank @field:Size(max = 100) val trackingCode: String)
 data class OrderItemView(val productId: Long, val shortCode: String, val quantity: Int,
-    val priceAtPurchase: BigDecimal, val costAtPurchase: BigDecimal)
+    val priceAtPurchase: BigDecimal, val costAtPurchase: BigDecimal, val productName: String = "")
+
+data class GroupedOrdersView(val customer: CustomerView, val orders: List<OrderView>)
+data class PackOrdersRequest(
+    @field:Size(min = 1, max = 100) val orderIds: List<Long>,
+    @field:NotBlank @field:Size(max = 100) val trackingCode: String)
 data class OrderView(val id: Long, val orderCode: String, val customer: CustomerView, val userId: Long,
     val liveSessionId: Long?, val requestId: UUID, val channel: Channel, val subtotalAmount: BigDecimal,
     val depositAmount: BigDecimal, val shippingFee: BigDecimal, val totalAmount: BigDecimal, val paidAmount: BigDecimal,
@@ -95,7 +100,7 @@ data class OrderView(val id: Long, val orderCode: String, val customer: Customer
 fun Order.toView() = OrderView(id!!, orderCode, customer.toView(), user.id!!, liveSession?.id, requestId, channel,
     subtotalAmount, depositAmount, shippingFee, totalAmount, paidAmount, remainingAmount, totalCost, status,
     paymentStatus, paymentMethod, proofImageUrl, trackingCode, commentRaw, createdAt,
-    items.map { OrderItemView(it.product.id!!, it.product.shortCode, it.quantity, it.priceAtPurchase, it.costAtPurchase) })
+    items.map { OrderItemView(it.product.id!!, it.product.shortCode, it.quantity, it.priceAtPurchase, it.costAtPurchase, it.product.name) })
 
 data class PageView<T>(val content: List<T>, val page: Int, val size: Int, val totalElements: Long, val totalPages: Int)
 data class LiveSessionRequest(@field:NotBlank @field:Size(max = 200) val title: String,

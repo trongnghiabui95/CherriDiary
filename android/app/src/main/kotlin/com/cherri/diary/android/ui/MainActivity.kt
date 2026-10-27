@@ -51,14 +51,7 @@ class MainActivity : AppCompatActivity() {
     private val tabPages = mutableListOf<View>()
     private lateinit var dashboard: LinearLayout
     private var selectedTab by androidx.compose.runtime.mutableStateOf(1)
-    private lateinit var results: LinearLayout
-    private lateinit var phone: EditText
-    private lateinit var nick: EditText
-    private lateinit var code: EditText
-    private lateinit var status: Spinner
-    private lateinit var channel: Spinner
     private var page = 0
-    private var totalPages = 1
     private var liveClient: LiveCommentClient? = null
     private val liveComments = androidx.compose.runtime.mutableStateListOf<ReceivedComment>()
     private var liveStatus by androidx.compose.runtime.mutableStateOf("Chưa kết nối")
@@ -112,7 +105,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(container, LinearLayout.LayoutParams(-1, 0, 1f))
         repeat(4) {
             body = column().apply { setPadding(dp(16), dp(12), dp(16), dp(24)) }
-            val scroll: View = if (it == 0 || it == 1) body.apply { visibility = View.GONE } else NestedScrollView(this).apply { addView(body); visibility = View.GONE }
+            val scroll: View = if (it in 0..2) body.apply { visibility = View.GONE } else NestedScrollView(this).apply { addView(body); visibility = View.GONE }
             container.addView(scroll, FrameLayout.LayoutParams(-1, -1))
             tabPages.add(scroll)
             when (it) {
@@ -278,34 +271,52 @@ class MainActivity : AppCompatActivity() {
         actions.action("Ảnh bill", "secondary") { manualComment = ""; photo.launch("image/*") }
         syncOverlay()
     }
-    private fun createOrdersSection() {
-        val card = body.featureCard("Quản lý đơn hàng & lịch sử", "Đơn gần đây · Nhấn vào đơn để cập nhật")
-        phone = card.field("Lọc SĐT", type = InputType.TYPE_CLASS_PHONE)
-        nick = card.field("Lọc TikTok ID")
-        code = card.field("Lọc mã đơn")
-        status = card.choice(listOf("TẤT CẢ", "DRAFT", "CONFIRMED", "SHIPPING", "COMPLETED", "CANCELLED"))
-        channel = card.choice(listOf("TẤT CẢ", "TIKTOK", "FACEBOOK", "ZALO", "PHONE"))
-        card.action("Tìm đơn / làm mới") { page = 0; loadOrders() }
-        val pagination = card.actionRow()
-        pagination.action("Trang trước", "secondary") { if (page > 0) { page--; loadOrders() } }
-        pagination.action("Trang sau", "secondary") { if (page + 1 < totalPages) { page++; loadOrders() } }
-        results = column().apply { setPadding(0, 0, 0, 0) }
-        card.addView(NestedScrollView(this).apply { addView(results) }, LinearLayout.LayoutParams(-1, dp(360)))
-        val catalog = body.featureCard("Sản phẩm & tồn kho", "Tra cứu mã hàng và giá bán")
-        val productResults = column().apply { setPadding(0, 0, 0, 0) }
-        catalog.action("Tải danh mục sản phẩm", "secondary") { network {
-            val products = cherri.api.service().products()
-            productResults.removeAllViews()
-            productResults.label("${products.totalElements} sản phẩm · Hiển thị tối đa 100 mã")
-            products.content.forEach { product ->
-                productResults.featureCard(product.shortCode + " · " + product.name, product.status)
-                    .label("${money(product.sellingPrice)} · Tồn kho ${product.stockQuantity}")
-            }
-            if (products.content.isEmpty()) productResults.label("Chưa có sản phẩm.")
-        } }
-        catalog.addView(productResults)
-    }
+    private var ordersReady = false
+    private var orderRows by androidx.compose.runtime.mutableStateOf<List<OrderView>>(emptyList())
+    private var orderGroups by androidx.compose.runtime.mutableStateOf<List<GroupedOrdersView>>(emptyList())
+    private var ordersLoading by androidx.compose.runtime.mutableStateOf(false)
+    private var ordersError by androidx.compose.runtime.mutableStateOf<String?>(null)
+    private var ordersPages by androidx.compose.runtime.mutableStateOf(1)
+    private var ordersTotal by androidx.compose.runtime.mutableStateOf(0L)
+    private var ordersRefresh by androidx.compose.runtime.mutableStateOf(0)
+    private var ordersJob: kotlinx.coroutines.Job? = null
+    private var ordersRequestId = 0
 
+    private fun createOrdersSection() {
+        ordersReady = true
+        body.addView(androidx.compose.ui.platform.ComposeView(this).apply {
+            setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent { CherriTheme {
+                OrdersScreen(orderRows, orderGroups, ordersLoading, ordersError, ordersPages, ordersTotal, ordersRefresh,
+                    load = { filters ->
+                        ordersJob?.cancel()
+                        val requestId = ++ordersRequestId
+                        ordersJob = lifecycleScope.launch {
+                            ordersLoading = true; ordersError = null
+                            try {
+                                if (filters.grouped) {
+                                    val data = cherri.api.service().groupedOrders(filters.query, filters.status, filters.from, filters.to, filters.page)
+                                    orderGroups = data.content; ordersPages = data.totalPages; ordersTotal = data.totalElements
+                                } else {
+                                    val data = cherri.api.service().orders(q = filters.query, status = filters.status,
+                                        from = filters.from, to = filters.to, page = filters.page)
+                                    orderRows = data.content; ordersPages = data.totalPages; ordersTotal = data.totalElements
+                                }
+                                connection(true)
+                            } catch (e: CancellationException) { throw e }
+                            catch (e: Exception) { ordersError = errorText(e); connection(false) }
+                            finally { if (requestId == ordersRequestId) ordersLoading = false }
+                        }
+                    }, manage = { manageOrder(it) }, pack = { request ->
+                        cherri.api.service().packOrders(request)
+                        loadOrders()
+                        toast("Đã gom các đơn vào một vận đơn chung")
+                    }, products = {
+                        startActivity(Intent(this@MainActivity, com.cherri.diary.android.ui.management.ManagementActivity::class.java).putExtra("route", "products"))
+                    })
+            } }
+        }, LinearLayout.LayoutParams(-1, -1))
+    }
     private fun setOverlay(enabled: Boolean) {
         if (!enabled) { enableAfterPermission = false; stopService(Intent(this, FloatingWindowService::class.java)); syncOverlay(); return }
         if (!Settings.canDrawOverlays(this)) {
@@ -341,7 +352,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         syncOverlay()
-        if (::results.isInitialized && cherri.tokens.token() != null) { loadOrders(); if (selectedTab == 1) loadDashboard() }
+        if (ordersReady && cherri.tokens.token() != null) { loadOrders(); if (selectedTab == 1) loadDashboard() }
     }
 
     private fun connectLive(id: Long) {
@@ -360,33 +371,7 @@ class MainActivity : AppCompatActivity() {
             } })
         liveClient?.connect()
         liveStatus = "Đang kết nối gateway · Phiên #$id"
-    }    private fun loadOrders() = network {
-        val data = cherri.api.service().orders(phone.text.toString().ifBlank { null }, nick.text.toString().ifBlank { null },
-            code.text.toString().ifBlank { null }, status.selectedItem.toString().takeUnless { status.selectedItemPosition == 0 },
-            channel.selectedItem.toString().takeUnless { channel.selectedItemPosition == 0 }, page)
-        connection(true)
-        totalPages = data.totalPages.coerceAtLeast(1)
-        results.removeAllViews()
-        results.label("Trang ${data.page + 1}/${data.totalPages.coerceAtLeast(1)} · ${data.totalElements} đơn")
-        val headings = results.actionRow()
-        listOf("Tên khách hàng", "Mã đơn", "Trạng thái").forEach { value ->
-            headings.label(value).apply { textSize = 12f; setTypeface(typeface, android.graphics.Typeface.BOLD); layoutParams = LinearLayout.LayoutParams(0, -2, 1f) }
-        }
-        if (data.content.isEmpty()) results.label("Chưa có đơn phù hợp.")
-        data.content.forEach { order ->
-            val row = results.actionRow().apply {
-                setPadding(dp(4), dp(10), dp(4), dp(10))
-                setBackgroundColor(if (results.childCount % 2 == 0) 0xFFFAF5F7.toInt() else android.graphics.Color.WHITE)
-                minimumHeight = dp(56)
-                isClickable = true; isFocusable = true
-                contentDescription = "${order.customer.name}, ${order.orderCode}, ${order.status}. Nhấn để quản lý đơn"
-                setOnClickListener { manageOrder(order) }
-            }
-            listOf(order.customer.name, order.orderCode, order.status).forEach { value ->
-                row.label(value).apply { textSize = 13f; layoutParams = LinearLayout.LayoutParams(0, -2, 1f) }
-            }
-        }
-    }
+    }    private fun loadOrders() { ordersRefresh++ }
 
     private fun manageOrder(order: OrderView) {
         val options = arrayOf("Đổi trạng thái", "Ghi nhận thanh toán", "Mã vận đơn", "In đơn / Lưu PDF") + if (order.status == "DRAFT" && order.items.isEmpty()) arrayOf("Bổ sung mã hàng cho đơn nháp") else emptyArray()

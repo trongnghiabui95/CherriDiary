@@ -73,6 +73,75 @@ class OrderIntegrationTest {
     }
 
     @Test
+    fun `smart search finds buyer name nick phone code and treats wildcards literally`() {
+        val order = orderService.fastCreate(staff.id!!, request().copy(customerName = "Linh Cherry", tiktokId = "@linh.cherry"), null)
+        for (query in listOf("Linh", "098765", "@linh.cherry", order.orderCode)) {
+            assertThat(orderService.list(null, null, null, null, null, 0, 20, query).content.map { it.id }).containsExactly(order.id)
+        }
+        assertThat(orderService.list(null, null, null, null, null, 0, 20, "%").content).isEmpty()
+        assertThat(orderService.list(null, null, null, null, null, 0, 20, from = java.time.Instant.now().plusSeconds(60)).content).isEmpty()
+        assertThatThrownBy { orderService.list(null, null, null, null, null, 0, 20,
+            from = java.time.Instant.now(), to = java.time.Instant.EPOCH) }.isInstanceOf(ApiException::class.java)
+    }
+
+    @Test
+    fun `grouping happens before pagination includes complete buyer basket and excludes shipped orders`() {
+        val first = orderService.fastCreate(staff.id!!, request(quantity = 1), null)
+        val second = orderService.fastCreate(staff.id!!, request(quantity = 1).copy(status = OrderStatus.DRAFT), null)
+        val shipped = orderService.fastCreate(staff.id!!, request(quantity = 1), null)
+        orderService.updateStatus(shipped.id, OrderStatus.SHIPPING)
+        orderService.fastCreate(staff.id!!, request(quantity = 1, phone = "0912345678"), null)
+        val group = orderService.grouped(first.orderCode, null, null, null, 0, 1)
+        assertThat(group.totalElements).isEqualTo(1)
+        assertThat(group.content.single().orders.map { it.id }).containsExactlyInAnyOrder(first.id, second.id)
+        assertThat(orderService.grouped(null, null, null, null, 1, 1).content).hasSize(1)
+    }
+
+    @Test
+    fun `pack gives buyer one waybill confirms drafts is idempotent and never reserves stock twice`() {
+        val first = orderService.fastCreate(staff.id!!, request(quantity = 1), null)
+        val second = orderService.fastCreate(staff.id!!, request(quantity = 1).copy(status = OrderStatus.DRAFT), null)
+        val stock = products.findByShortCode("A1")!!.stockQuantity
+        val packed = orderService.pack(PackOrdersRequest(listOf(second.id, first.id), " gh123 "))
+        assertThat(packed.orders.map { it.trackingCode }).containsOnly("GH123")
+        assertThat(packed.orders.map { it.status }).containsOnly(OrderStatus.CONFIRMED)
+        orderService.pack(PackOrdersRequest(listOf(first.id, second.id), "GH123"))
+        assertThat(products.findByShortCode("A1")!!.stockQuantity).isEqualTo(stock)
+        val other = orderService.fastCreate(staff.id!!, request(quantity = 1, phone = "0912345678"), null)
+        assertThatThrownBy { orderService.pack(PackOrdersRequest(listOf(other.id), "GH123")) }.isInstanceOf(ApiException::class.java)
+        assertThat(orderService.get(other.id).trackingCode).isNull()
+    }
+
+    @Test
+    fun `packing mixed buyers empty drafts or shipped orders fails atomically`() {
+        val first = orderService.fastCreate(staff.id!!, request(quantity = 1), null)
+        val other = orderService.fastCreate(staff.id!!, request(quantity = 1, phone = "0912345678"), null)
+        assertThatThrownBy { orderService.pack(PackOrdersRequest(listOf(first.id, other.id), "MIX")) }.isInstanceOf(ApiException::class.java)
+        val draft = orderService.fastCreate(staff.id!!, request().copy(items = emptyList(), depositAmount = BigDecimal.ZERO), null)
+        assertThatThrownBy { orderService.pack(PackOrdersRequest(listOf(first.id, draft.id), "EMPTY")) }.isInstanceOf(ApiException::class.java)
+        assertThat(orderService.get(first.id).trackingCode).isNull()
+        assertThat(orderService.get(draft.id).status).isEqualTo(OrderStatus.DRAFT)
+        orderService.updateStatus(first.id, OrderStatus.SHIPPING)
+        assertThatThrownBy { orderService.pack(PackOrdersRequest(listOf(first.id), "LATE")) }.isInstanceOf(ApiException::class.java)
+    }
+
+    @Test
+    fun `new grouped packing endpoints serialize products dates and validate empty selections`() {
+        val order = orderService.fastCreate(staff.id!!, request(quantity = 1).copy(customerName = "Cherri Buyer"), null)
+        val authorization = "Bearer ${token()}"
+        mvc.perform(get("/api/v1/orders/grouped").param("q", "Cherri Buyer").header("Authorization", authorization))
+            .andExpect(status().isOk).andExpect(jsonPath("$.content[0].orders[0].items[0].productName").value("Áo"))
+        mvc.perform(get("/api/v1/orders").param("from", "2099-01-01T00:00:00Z").header("Authorization", authorization))
+            .andExpect(status().isOk).andExpect(jsonPath("$.content").isEmpty)
+        mvc.perform(post("/api/v1/orders/pack").header("Authorization", authorization).contentType("application/json")
+            .content("""{"orderIds":[],"trackingCode":"EMPTY"}"""))
+            .andExpect(status().isBadRequest)
+        mvc.perform(post("/api/v1/orders/pack").header("Authorization", authorization).contentType("application/json")
+            .content(json.writeValueAsString(PackOrdersRequest(listOf(order.id), "TEST-HTTP"))))
+            .andExpect(status().isOk).andExpect(jsonPath("$.orders[0].trackingCode").value("TEST-HTTP"))
+    }
+
+    @Test
     fun `comment only draft is accepted by HTTP keeps evidence and cannot confirm before products`() {
         val body = FastCreateRequest(UUID.randomUUID(), emptyList(), customerName = "Khách mới", commentRaw = "Giữ giúp mình mẫu áo này")
         val part = MockMultipartFile("order", "", "application/json", json.writeValueAsBytes(body))

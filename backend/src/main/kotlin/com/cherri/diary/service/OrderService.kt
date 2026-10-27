@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
 import java.math.BigDecimal
+import java.time.Instant
+import java.util.Locale
 
 @Service
 class OrderService(private val users: UserRepository, private val products: ProductRepository,
@@ -175,9 +177,15 @@ class OrderService(private val users: UserRepository, private val products: Prod
 
     @Transactional
     fun updateTracking(id: Long, request: TrackingRequest): OrderView {
+        val tracking = request.trackingCode.trim().uppercase(Locale.ROOT).takeIf { it.isNotEmpty() } ?: invalid("Mã vận đơn không được rỗng")
+        lockTracking(tracking)
         val order = orders.lockById(id) ?: missing("Không tìm thấy đơn hàng")
         if (order.status in setOf(OrderStatus.COMPLETED, OrderStatus.CANCELLED)) conflict("Không thể sửa vận đơn cho đơn đã kết thúc")
-        order.trackingCode = request.trackingCode.trim().takeIf { it.isNotEmpty() } ?: invalid("Mã vận đơn không được rỗng")
+        if (ordersWithTracking(tracking).any { it.id != id }) conflict("Mã vận đơn đã dùng; sử dụng thao tác gom đơn để đóng gói chung")
+        val previous = order.trackingCode
+        if (previous != null && previous != tracking && ordersWithTracking(previous).size > 1)
+            conflict("Không thể đổi riêng mã vận đơn của một đơn đã gom")
+        order.trackingCode = tracking
         return order.toView()
     }
 
@@ -185,22 +193,96 @@ class OrderService(private val users: UserRepository, private val products: Prod
     fun get(id: Long) = orders.findById(id).orElseThrow { ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "Không tìm thấy đơn hàng") }.toView()
 
     @Transactional(readOnly = true)
-    fun list(phone: String?, tiktokId: String?, orderCode: String?, status: OrderStatus?, channel: Channel?, page: Int, size: Int): PageView<OrderView> {
+    fun list(phone: String?, tiktokId: String?, orderCode: String?, status: OrderStatus?, channel: Channel?, page: Int, size: Int,
+        q: String? = null, from: Instant? = null, to: Instant? = null): PageView<OrderView> {
         if (page < 0 || size !in 1..100) invalid("page >= 0, size từ 1 đến 100")
+        val spec = orderSearch(phone, tiktokId, orderCode, status, channel, q, from, to)
+        val result = orders.findAll(spec, PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id")))
+        return PageView(result.content.map(Order::toView), page, size, result.totalElements, result.totalPages)
+    }
+
+    private fun orderSearch(phone: String?, tiktokId: String?, orderCode: String?, status: OrderStatus?, channel: Channel?,
+        q: String?, from: Instant?, to: Instant?): Specification<Order> {
+        if (from != null && to != null && !from.isBefore(to)) invalid("Khoảng thời gian không hợp lệ")
         val normalizedPhone = Identity.phone(phone)
         val normalizedNick = Identity.tiktok(tiktokId)
-        val spec = Specification<Order> { root, _, cb ->
+        return Specification<Order> { root, _, cb ->
             val predicates = mutableListOf<jakarta.persistence.criteria.Predicate>()
             normalizedPhone?.let { predicates += cb.equal(root.get<Customer>("customer").get<String>("phoneNumber"), it) }
             normalizedNick?.let { predicates += cb.equal(root.get<Customer>("customer").get<String>("tiktokId"), it) }
             orderCode?.takeIf { it.isNotBlank() }?.let { predicates += cb.equal(root.get<String>("orderCode"), it) }
             status?.let { predicates += cb.equal(root.get<OrderStatus>("status"), it) }
             channel?.let { predicates += cb.equal(root.get<Channel>("channel"), it) }
+            from?.let { predicates += cb.greaterThanOrEqualTo(root.get("createdAt"), it) }
+            to?.let { predicates += cb.lessThan(root.get("createdAt"), it) }
+            q?.trim()?.takeIf { it.isNotEmpty() }?.let { query ->
+                val pattern = "%" + query.removePrefix("@").lowercase(Locale.ROOT)
+                    .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+                val customer = root.get<Customer>("customer")
+                predicates += cb.or(*listOf("name", "phoneNumber", "tiktokId").map {
+                    cb.like(cb.lower(customer.get(it)), pattern, '\\')
+                }.plus(cb.like(cb.lower(root.get("orderCode")), pattern, '\\')).toTypedArray())
+            }
             cb.and(*predicates.toTypedArray())
         }
-        val result = orders.findAll(spec, PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id")))
-        return PageView(result.content.map(Order::toView), page, size, result.totalElements, result.totalPages)
     }
+
+    @Transactional(readOnly = true)
+    fun grouped(q: String?, status: OrderStatus?, from: Instant?, to: Instant?, page: Int, size: Int): PageView<GroupedOrdersView> {
+        if (page < 0 || size !in 1..100) invalid("page >= 0, size từ 1 đến 100")
+        val search = orderSearch(null, null, null, status, null, q, from, to)
+        val pending = Specification<Order> { root, _, _ -> root.get<OrderStatus>("status").`in`(OrderStatus.DRAFT, OrderStatus.CONFIRMED) }
+        // Select matching buyers first; include all their pending orders, even those outside the search/date filter.
+        val matches = orders.findAll(search.and(pending), Sort.by(Sort.Direction.DESC, "createdAt", "id"))
+        val buyerIds = matches.filter { !it.customer.phoneNumber.isNullOrBlank() || !it.customer.tiktokId.isNullOrBlank() }
+            .map { it.customer.id!! }.distinct()
+        val related = if (buyerIds.isEmpty()) emptyList() else orders.findAll(pending.and(Specification<Order> { root, _, _ ->
+            root.get<Customer>("customer").get<Long>("id").`in`(buyerIds)
+        }), Sort.by(Sort.Direction.DESC, "createdAt", "id"))
+        val byBuyer = related.groupBy { it.customer.id!! }
+        val groups = matches.distinctBy { groupingKey(it) }.map { matched ->
+            val all = if (groupingKey(matched).startsWith("customer:")) byBuyer[matched.customer.id!!].orEmpty() else listOf(matched)
+            GroupedOrdersView(matched.customer.toView(), all.map(Order::toView))
+        }
+        val start = (page.toLong() * size).coerceAtMost(groups.size.toLong()).toInt()
+        return PageView(groups.drop(start).take(size), page, size, groups.size.toLong(), (groups.size + size - 1) / size)
+    }
+
+    private fun groupingKey(order: Order) = if (order.customer.phoneNumber.isNullOrBlank() && order.customer.tiktokId.isNullOrBlank())
+        "order:${order.id}" else "customer:${order.customer.id}"
+
+    @Transactional
+    fun pack(request: PackOrdersRequest): GroupedOrdersView {
+        if (request.orderIds.isEmpty() || request.orderIds.size > 100 || request.orderIds.any { it <= 0 } || request.trackingCode.length > 100)
+            invalid("Nhập từ 1 đến 100 đơn và mã vận đơn tối đa 100 ký tự")
+        val ids = request.orderIds.distinct().sorted()
+        if (ids.size != request.orderIds.size) invalid("Danh sách đơn bị trùng")
+        val tracking = request.trackingCode.trim().uppercase(Locale.ROOT)
+        if (tracking.isBlank()) invalid("Nhập mã vận đơn từ hãng vận chuyển")
+        // Serializes this tracking code across staff, preventing two buyers sharing the same waybill.
+        lockTracking(tracking)
+        val selected = ids.map { orders.lockById(it) ?: missing("Không tìm thấy đơn $it") }
+        val buyer = selected.first().customer
+        if (selected.any { it.customer.id != buyer.id } || (selected.size > 1 && buyer.phoneNumber.isNullOrBlank() && buyer.tiktokId.isNullOrBlank()))
+            conflict("Chỉ gom đơn có cùng SĐT hoặc TikTok ID")
+        if (selected.any { it.status !in setOf(OrderStatus.DRAFT, OrderStatus.CONFIRMED) || it.items.isEmpty() || !it.stockReserved })
+            conflict("Đơn phải chưa giao và đã bổ sung đủ sản phẩm")
+        if (selected.any { it.trackingCode != null && it.trackingCode != tracking }) conflict("Đơn đã có mã vận đơn khác")
+        val existing = ordersWithTracking(tracking)
+        if (existing.any { it.id !in ids }) conflict("Mã vận đơn đã dùng; không thể thêm đơn vào kiện đã tạo")
+        selected.forEach { it.status = OrderStatus.CONFIRMED; it.trackingCode = tracking }
+        orders.flush()
+        return GroupedOrdersView(buyer.toView(), selected.map(Order::toView))
+    }
+
+    private fun lockTracking(tracking: String) {
+        entityManager.createNativeQuery("SELECT 1 FROM pg_advisory_xact_lock(hashtext(:tracking))")
+            .setParameter("tracking", tracking).singleResult
+    }
+
+    private fun ordersWithTracking(tracking: String) = orders.findAll(Specification<Order> { root, _, cb ->
+        cb.equal(cb.upper(root.get("trackingCode")), tracking.uppercase(Locale.ROOT))
+    })
 
     private fun money(value: BigDecimal): BigDecimal {
         if (value.signum() < 0 || value.scale() > 2 || value.precision() - value.scale() > 17) invalid("Số tiền không hợp lệ")

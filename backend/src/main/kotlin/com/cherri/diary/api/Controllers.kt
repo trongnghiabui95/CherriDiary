@@ -36,7 +36,15 @@ class OrderController(private val orders: OrderService, private val parser: Comm
     fun list(@RequestParam(required = false) phone: String?, @RequestParam(required = false) tiktokId: String?,
         @RequestParam(required = false) orderCode: String?, @RequestParam(required = false) status: OrderStatus?,
         @RequestParam(required = false) channel: Channel?, @RequestParam(defaultValue = "0") page: Int,
-        @RequestParam(defaultValue = "20") size: Int) = orders.list(phone, tiktokId, orderCode, status, channel, page, size)
+        @RequestParam(defaultValue = "20") size: Int, @RequestParam(required = false) q: String?,
+        @RequestParam(required = false) from: java.time.Instant?, @RequestParam(required = false) to: java.time.Instant?) =
+        orders.list(phone, tiktokId, orderCode, status, channel, page, size, q, from, to)
+    @GetMapping("/grouped")
+    fun grouped(@RequestParam(required = false) q: String?, @RequestParam(required = false) status: OrderStatus?,
+        @RequestParam(required = false) from: java.time.Instant?, @RequestParam(required = false) to: java.time.Instant?,
+        @RequestParam(defaultValue = "0") page: Int, @RequestParam(defaultValue = "20") size: Int) = orders.grouped(q, status, from, to, page, size)
+    @PostMapping("/pack")
+    fun pack(@Valid @RequestBody request: PackOrdersRequest) = orders.pack(request)
     @GetMapping("/{id}") fun get(@PathVariable id: Long) = orders.get(id)
     @PutMapping("/{id}/status") fun status(@PathVariable id: Long, @Valid @RequestBody request: StatusRequest) = orders.updateStatus(id, request.status)
     @PutMapping("/{id}/items") fun items(@PathVariable id: Long, @Valid @RequestBody request: DraftItemsRequest) = orders.completeDraft(id, request.items)

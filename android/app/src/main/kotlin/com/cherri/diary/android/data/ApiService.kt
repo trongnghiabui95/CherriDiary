@@ -24,7 +24,11 @@ interface ApiService {
     @Multipart @POST("orders/fast-create") suspend fun fastCreate(@Part("order") order: RequestBody, @Part proof: MultipartBody.Part?): OrderView
     @GET("orders") suspend fun orders(@Query("phone") phone: String? = null, @Query("tiktokId") tiktokId: String? = null,
         @Query("orderCode") orderCode: String? = null, @Query("status") status: String? = null,
-        @Query("channel") channel: String? = null, @Query("page") page: Int = 0, @Query("size") size: Int = 20): PageView<OrderView>
+        @Query("channel") channel: String? = null, @Query("page") page: Int = 0, @Query("size") size: Int = 20,
+        @Query("q") q: String? = null, @Query("from") from: String? = null, @Query("to") to: String? = null): PageView<OrderView>
+    @GET("orders/grouped") suspend fun groupedOrders(@Query("q") q: String? = null, @Query("status") status: String? = null,
+        @Query("from") from: String? = null, @Query("to") to: String? = null, @Query("page") page: Int = 0): PageView<GroupedOrdersView>
+    @POST("orders/pack") suspend fun packOrders(@Body request: PackOrdersRequest): GroupedOrdersView
     @PUT("orders/{id}/status") suspend fun status(@Path("id") id: Long, @Body request: StatusRequest): OrderView
     @PUT("orders/{id}/items") suspend fun draftItems(@Path("id") id: Long, @Body request: DraftItemsRequest): OrderView
     @PUT("orders/{id}/payment") suspend fun payment(@Path("id") id: Long, @Body request: PaymentRequest): OrderView

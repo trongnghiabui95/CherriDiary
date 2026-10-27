@@ -54,6 +54,12 @@ Không cam kết lấy đầy đủ comment bị TikTok lọc, comment cũ hoặ
 
 ## Kiểm tra code
 
+Worker tự tạo lại kết nối nếu không nhận sự kiện TikTok nào trong 90 giây,
+và tạo client mới khi thử lại để bỏ Room ID/cookie cũ. Log lỗi ghi rõ bước
+HTML/API/signing thất bại; URL và các secret đã cấu hình được che đi.
+Thông báo lỗi HTML có thể chỉ là fallback: nếu tiếp theo có `TikTok connected`
+và `Forwarded ... comments` thì worker vẫn nhận và chuyển comment bình thường.
+
 ```bash
 docker run --rm -v "$(pwd)/tiktok-connector:/app" -w /app node:22-bookworm-slim npm test
 ```

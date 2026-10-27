@@ -29,12 +29,15 @@ data class FastCreateRequest(val requestId: String, val items: List<QuickOrderIt
     val commentRaw: String? = null, val acknowledgeBlacklist: Boolean = false, val status: String = "CONFIRMED")
 
 data class DraftItemsRequest(val items: List<QuickOrderItem>)
-data class OrderItemView(val shortCode: String, val quantity: Int, val priceAtPurchase: BigDecimal)
+data class OrderItemView(val shortCode: String, val quantity: Int, val priceAtPurchase: BigDecimal, val productName: String? = null)
 data class OrderView(val id: Long, val orderCode: String, val customer: CustomerView, val channel: String,
     val subtotalAmount: BigDecimal, val depositAmount: BigDecimal, val shippingFee: BigDecimal,
     val totalAmount: BigDecimal, val remainingAmount: BigDecimal, val paidAmount: BigDecimal,
     val status: String, val paymentStatus: String, val paymentMethod: String, val trackingCode: String?,
-    val proofImageUrl: String?, val commentRaw: String?, val items: List<OrderItemView>)
+    val proofImageUrl: String?, val commentRaw: String?, val items: List<OrderItemView>, val createdAt: String? = null)
+
+data class GroupedOrdersView(val customer: CustomerView, val orders: List<OrderView>)
+data class PackOrdersRequest(val orderIds: List<Long>, val trackingCode: String)
 data class PageView<T>(val content: List<T>, val page: Int, val size: Int, val totalElements: Long, val totalPages: Int)
 data class StatusRequest(val status: String)
 data class PaymentRequest(val depositAmount: BigDecimal, val paidAmount: BigDecimal, val paymentMethod: String)

@@ -1,6 +1,9 @@
 import { TikTokLiveConnection, WebcastEvent, ControlEvent } from 'tiktok-live-connector';
 import { BackendBridge, normalizeComment } from './bridge.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
+import { isStreamStalled, describeError } from './connection-health.mjs';
+
+const errorText = error => describeError(error, [process.env.EULER_API_KEY, process.env.CHERRI_PASSWORD]);
 
 if (!process.env.CHERRI_PASSWORD) { console.error('Set CHERRI_PASSWORD in .env.connector.'); process.exit(1); }
 const bridge = new BackendBridge({ baseUrl: process.env.CHERRI_API_URL || 'http://localhost:8080/api/v1/',
@@ -13,6 +16,7 @@ let stopping = false;
 let pumping = false;
 let sent = 0;
 let nextConnect = 0;
+let lastDataAt = 0;
 const queue = [];
 async function pump() {
   if (pumping) return;
@@ -36,13 +40,16 @@ async function pump() {
   } finally { pumping = false; }
 }
 async function changeSource(source) {
-  if (connection) { connection.removeAllListeners('disconnected'); await connection.disconnect(); }
-  connection = null; current = source; nextConnect = 0;
+  const previous = connection;
+  connection = null;
+  if (previous) { previous.removeAllListeners(ControlEvent.DISCONNECTED); await previous.disconnect(); }
+  current = source; nextConnect = 0;
   if (!source.enabled) { console.info('Waiting for a source selected in Android Live tab.'); return; }
   const sessionId = source.liveSessionId;
   const target = new TikTokLiveConnection(source.username, { processInitialData: false,
     ...(process.env.EULER_API_KEY ? { signApiKey: process.env.EULER_API_KEY } : {}) });
   connection = target;
+  target.on(ControlEvent.DECODED_DATA, () => { if (target === connection) lastDataAt = Date.now(); });
   target.on(WebcastEvent.CHAT, data => {
     if (stopping || target !== connection) return;
     const event = normalizeComment(data);
@@ -50,8 +57,11 @@ async function changeSource(source) {
     if (queue.length >= 2000) { console.warn('Queue full; event dropped.'); return; }
     queue.push({ event, sessionId }); void pump();
   });
-  target.on(ControlEvent.ERROR, () => console.warn('TikTok connector error; checking live availability/signing.'));
-  target.on(ControlEvent.DISCONNECTED, () => { nextConnect = Date.now() + 60000; console.warn('TikTok disconnected; reconnect in 60s.'); });
+  target.on(ControlEvent.ERROR, error => console.warn(`TikTok: ${errorText(error.info)}: ${errorText(error.exception)}`));
+  target.on(ControlEvent.DISCONNECTED, () => {
+    if (target !== connection) return;
+    nextConnect = Date.now() + 60000; console.warn('TikTok disconnected; reconnect in 60s.');
+  });
   console.info(`Source @${source.username} -> Cherri session ${sessionId}.`);
 }
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { stopping = true; void connection?.disconnect(); });
@@ -60,10 +70,16 @@ while (!stopping) {
     const selected = await bridge.source();
     const source = selected.liveSessionId == null ? fallback : selected;
     if (!current || current.enabled !== source.enabled || current.username !== source.username || String(current.liveSessionId) !== String(source.liveSessionId)) await changeSource(source);
+    if (connection && isStreamStalled(connection.isConnected, lastDataAt)) {
+      console.warn('No TikTok events for 90s; replacing stalled connection.');
+      await changeSource(source);
+    }
     if (connection && !connection.isConnected && !connection.isConnecting && Date.now() >= nextConnect) {
+      // A fresh client also discards stale room IDs and cookies after failed attempts.
+      await changeSource(source);
       nextConnect = Date.now() + 60000;
-      try { const state = await connection.connect(); console.info(`TikTok connected. Room ID: ${state.roomId}. Cherri session: ${current.liveSessionId}.`); }
-      catch (error) { console.warn(`Connect failed (${error.constructor?.name || 'Error'}). Check LIVE/signing.`); }
+      try { const state = await connection.connect(); lastDataAt = Date.now(); console.info(`TikTok connected. Room ID: ${state.roomId}. Cherri session: ${current.liveSessionId}.`); }
+      catch (error) { console.warn(`Connect failed (${error.constructor?.name || 'Error'}): ${errorText(error)}`); }
     }
   } catch (error) { console.warn(`Cannot read live source (${error.status || 'network/auth'}). Retrying.`); }
   if (!stopping) await delay(5000);
